@@ -1,0 +1,9 @@
+{
+  "name": "openrouter-wingmen-script",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@openrouter/sdk": "^0.9.11"
+  }
+}
