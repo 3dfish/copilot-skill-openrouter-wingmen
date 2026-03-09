@@ -1,12 +1,18 @@
 # OpenRouter Wingmen
 
-`openrouter-wingmen` 是一个面向 VS Code Copilot 技能场景的 OpenRouter 工作流包。
+`openrouter-wingmen` 在 GitHub Copilot 场景下实现了 **OpenClaw Gateway 的部分功能**，同时面向 **CLI** 与 **VS Code Chat** 两类交互入口。
 
 它提供了：
-- 可复用的 OpenRouter 调用脚本
+- 面向 CLI 与 VS Code Chat 的统一调用约定
+- 可复用的 OpenRouter/Gateway 调用脚本
 - 传话模式（Relay）协议
 - 安全约束（密钥管理、输出读取授权）
 - 回归检查清单
+
+## 交互入口
+
+- CLI: 通过命令行脚本直接调用，适合自动化和批处理
+- VS Code Chat: 通过技能工作流交互，适合协作式问答和多轮传话
 
 ## 适用场景
 
