@@ -1,7 +1,7 @@
 ---
 name: openrouter-wingmen
-description: "Use this skill whenever the user wants to talk to OpenRouter models through you, either as a relay (you pass messages back and forth) or as a wingman tool model (you ask OpenRouter first, then ask user consent before deeper internal use). Trigger on requests like '和 openrouter 聊聊', '帮我问问 openrouter', '你当传话员', '外援模型', '代问模型', and similar wording. This skill also supports OpenClaw Gateway-style routing and multiple agent output profiles."
-argument-hint: "Mode A or B, first message/model, optional region/task/agent profile"
+description: "Use this skill whenever the user wants to talk to OpenRouter models through you, either as a relay (you pass messages back and forth) or as a wingman tool model (you ask OpenRouter first, then ask user consent before deeper internal use). Trigger on requests like '和 openrouter 聊聊', '帮我问问 openrouter', '你当传话员', '外援模型', '代问模型', and similar wording."
+argument-hint: "Mode A or B, first message, alias/model profile"
 ---
 
 # OpenRouter Wingmen
@@ -16,8 +16,8 @@ Use this when the user wants outside model input and then asks you to continue w
 
 Flow:
 
-1. Ask/resolve model id for this call.
-2. Call OpenRouter.
+1. Ask/resolve alias for this call.
+2. Call OpenRouter with alias-bound API key and model id.
 3. Print OpenRouter reply immediately.
 4. Ask user authorization before feeding that reply into your own deeper reasoning.
 5. If user refuses, do not reuse that reply internally.
@@ -30,7 +30,7 @@ Flow:
 
 1. First turn popup initialization:
    - Ask first relay message.
-   - Ask initial model id (optional).
+   - Ask alias (optional; default alias can be used).
 2. Later turns:
    - User message is relay content by default.
    - If message contains `--`, split at first `--`:
@@ -38,27 +38,15 @@ Flow:
      - Right side: assistant-only instructions (never forward to OpenRouter).
    - If message starts with `--`, do not call OpenRouter for that turn.
 
-Examples:
+## Alias Credential Set (Mandatory)
 
-- `今天北京天气怎么样 -- 原样转述，不要扩写`
-- `-- 把模型切换到 openrouter/auto`
-- `-- 结束传话模式`
+- Do not use a single `OPENROUTER_API_KEY + OPENROUTER_MODEL_ID` pair.
+- Use profile entry format: `<alias>:<apikey>:<modelid>`.
+- At least one profile entry must exist.
+- Store profiles in `openrouter/.env` as `OPENROUTER_PROFILE_SET`.
+- Use `OPENROUTER_DEFAULT_ALIAS` as fallback alias.
 
-## Model Resolution
-
-- Keep `last_model_id` in session state.
-- Mode A: ask model id each call.
-- Mode B: initialize model in first popup; later turns reuse `last_model_id` unless assistant-side instructions request a switch.
-- Fallback order: explicit value -> `last_model_id` -> `openrouter/auto`.
-
-## Routing Policy (Mandatory)
-
-- The script supports `--task` (`general/coding/rewrite/analysis/vision`) and `--region` (`global/cn-mainland/auto`).
-- For `cn-mainland`, routing policy blocks model families likely unavailable in mainland networks:
-  - ChatGPT/GPT/OpenAI
-  - Claude/Anthropic
-  - Gemini/Google Gemini
-- Do not bypass blocked model policies unless the user explicitly requests override (`--allow-blocked-models`).
+If no profile set exists and the script is interactive, prompt user to enter profile entries.
 
 ## Multi-Agent Compatibility
 
@@ -74,20 +62,11 @@ Examples:
 - Credentials file: `openrouter/.env`
 - Always print OpenRouter reply immediately in chat.
 
-Presentation format:
-
-> [!IMPORTANT]
-> OpenRouter (`<model_id>`) reply:
-> <reply text>
-
-If callout rendering is weak in CLI, also print plain text fallback.
-
 ## Security Rules (Mandatory)
 
 - Never print API keys in chat or terminal logs.
-- Never pass API key on command line arguments.
-- If key is missing, collect in chat and persist to `openrouter/.env` with restrictive permissions.
-- Run script without `--api-key`; key must come from env or `.env`.
+- Prefer interactive/env-based profile setup over command-line key arguments.
+- If credentials are missing, collect in chat and persist to `openrouter/.env` with restrictive permissions.
 
 ## Large File Authorization (Mandatory)
 
@@ -96,37 +75,15 @@ Before reading saved OpenRouter output files (`.md` or images):
 - If file size is greater than 50KB (51200 bytes), ask user authorization via popup first.
 - If user refuses/skips, do not read content; only report path and size.
 
-Unified size check template (Linux/macOS):
-
-```bash
-FILE_PATH="<file_path>"
-FILE_SIZE_BYTES=$(wc -c < "$FILE_PATH" | tr -d '[:space:]')
-THRESHOLD_BYTES=51200
-
-if [ "$FILE_SIZE_BYTES" -gt "$THRESHOLD_BYTES" ]; then
-  echo "NEED_AUTH size_bytes=$FILE_SIZE_BYTES path=$FILE_PATH"
-else
-  echo "READ_OK size_bytes=$FILE_SIZE_BYTES path=$FILE_PATH"
-fi
-```
-
-Consent prompt example:
-
-- "检测到文件超过50KB（<size_kb>KB）：`<file_path>`。是否允许我读取其内容并继续处理？"
-
 ## Required Assets
 
 - Script: `./scripts/openrouter_capture.mjs`
 - Package: `./scripts/package.json`
 - Dependency: `@openrouter/sdk`
-- Routing config: `./scripts/gateway-routing.json`
 - Agent profile config: `./scripts/agent-profiles.json`
 - Relay protocol spec: `./references/protocol.md`
 - Agent compatibility reference: `./references/agent-compatibility.md`
 - Regression checklist: `./references/regression-checklist.md`
-
-When changing Mode B behavior, read `./references/protocol.md` first.
-When validating changes, run through `./references/regression-checklist.md`.
 
 ## Run Template
 
@@ -140,37 +97,28 @@ Call template:
 
 ```bash
 node <skill-dir>/scripts/openrouter_capture.mjs \
+  --alias <alias> \
   --prompt "<user-prompt>" \
-  --task <task-name> \
-  --region <region-name> \
-  --agent <agent-profile> \
-  --model "<resolved_model_id>" \
-  --save-env
+  --agent <agent-profile>
 ```
 
-Long prompt template (recommended for multi-line docs/specs):
+Long prompt template:
 
 ```bash
 node <skill-dir>/scripts/openrouter_capture.mjs \
+  --alias <alias> \
   --prompt-file <path-to-prompt.txt> \
-  --task <task-name> \
-  --region <region-name> \
-  --agent <agent-profile> \
-  --model "<resolved_model_id>" \
-  --save-env
+  --agent <agent-profile>
 ```
 
 With image input (repeatable):
 
 ```bash
 node <skill-dir>/scripts/openrouter_capture.mjs \
+  --alias <alias> \
   --prompt "<user-prompt>" \
   --image <path-or-url> \
-  --task vision \
-  --region <region-name> \
-  --agent <agent-profile> \
-  --model "<resolved_model_id>" \
-  --save-env
+  --agent <agent-profile>
 ```
 
 ## Reliability Notes
@@ -178,12 +126,12 @@ node <skill-dir>/scripts/openrouter_capture.mjs \
 - For long prompts, prefer `--prompt-file` over shell heredoc/complex quoting.
 - Treat terminal-rendered body as preview only; use `[TEXT_FILE]` path as source of truth for full output.
 - If output seems cut off, inspect the saved file first, then request continuation in a follow-up call.
-- Check `[ROUTE]` marker for final provider/region/model decisions when debugging routing issues.
+- Check `[ROUTE]` marker for provider/alias/model decisions when debugging.
 
 ## Completion Checks
 
 - Mode selected correctly (A or B).
-- Model id resolved correctly.
+- Alias selected correctly (arg or default).
 - OpenRouter reply printed immediately.
 - No API key exposed in logs.
 - Large-file consent requested when needed.

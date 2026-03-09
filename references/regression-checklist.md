@@ -1,13 +1,22 @@
 # Regression Checklist
 
-Use this checklist after changing relay behavior, command parsing, output rendering, or security controls.
+Use this checklist after changing relay behavior, command parsing, output rendering, credential handling, or security controls.
 
 ## Core Flow
 
 - [ ] Mode B first turn asks first relay message popup.
-- [ ] Mode B first turn asks initial model popup.
+- [ ] Mode B first turn asks alias or uses default alias.
 - [ ] First OpenRouter response prints immediately in chat.
 - [ ] Later turns use plain user messages as relay content.
+
+## Alias Credential Set
+
+- [ ] Missing profile set triggers interactive prompt for `<alias>:<apikey>:<modelid>`.
+- [ ] At least one profile is required.
+- [ ] Invalid alias format is rejected with clear error.
+- [ ] `--list-aliases` prints aliases and bound model ids.
+- [ ] `--alias` selects correct profile for request.
+- [ ] Missing `--alias` falls back to default alias (with interactive default option in TTY).
 
 ## Delimiter Behavior (`--`)
 
@@ -16,12 +25,6 @@ Use this checklist after changing relay behavior, command parsing, output render
 - [ ] `-- only local`: no OpenRouter call.
 - [ ] Multiple delimiters: split at first delimiter only.
 
-## Model Behavior
-
-- [ ] Fallback order works: explicit -> `last_model_id` -> `openrouter/auto`.
-- [ ] Assistant-side model switch updates `last_model_id`.
-- [ ] Model switch turn does not accidentally send assistant-side text to OpenRouter.
-
 ## Output Timing
 
 - [ ] Each OpenRouter call is followed by immediate standalone reply output.
@@ -29,9 +32,9 @@ Use this checklist after changing relay behavior, command parsing, output render
 
 ## Security
 
-- [ ] API key never appears in command arguments.
 - [ ] API key never appears in chat logs.
-- [ ] Script runs without `--api-key` in normal flow.
+- [ ] Script can run without passing key in command arguments when profile set exists.
+- [ ] `.env` stores profile set and default alias, not single key/model pair.
 
 ## Large File Authorization
 
@@ -50,19 +53,6 @@ Use this checklist after changing relay behavior, command parsing, output render
 - [ ] `--prompt-file <path>` loads multi-line text correctly.
 - [ ] `--prompt-file` + multiple `--image` arguments work together.
 - [ ] Missing/empty `--prompt-file` yields clear error message.
-
-## Long Output Handling
-
-- [ ] `[TEXT_FILE]` is always printed when text exists.
-- [ ] Saved markdown file preserves complete assistant text for downstream reads.
-
-## Routing Policy
-
-- [ ] `--task` selects expected routing candidate model.
-- [ ] `--region cn-mainland` blocks GPT/Claude/Gemini model families.
-- [ ] Blocked explicit model raises clear error unless `--allow-blocked-models` is set.
-- [ ] Blocked env model under `cn-mainland` falls back to task route candidate.
-- [ ] `[ROUTE]` marker prints provider/region/task/model/source metadata.
 
 ## Agent Profile Compatibility
 

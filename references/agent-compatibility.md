@@ -22,20 +22,20 @@ This skill can be used from multiple agent runtimes via `openrouter_capture.mjs 
 ```bash
 node ./scripts/openrouter_capture.mjs \
   --agent github-copilot \
-  --prompt "Summarize this spec" \
-  --task rewrite
+  --alias default \
+  --prompt "Summarize this spec"
 ```
 
 ```bash
 node ./scripts/openrouter_capture.mjs \
   --agent claude-code \
-  --prompt-file ./tmp/prompt.txt \
-  --task analysis
+  --alias work \
+  --prompt-file ./tmp/prompt.txt
 ```
 
 ## Output Markers
 
-- `[ROUTE] { ... }` route metadata for diagnostics
+- `[ROUTE] { ... }` call metadata for diagnostics
 - `[TEXT_FILE] <path>` canonical markdown output
 - `[TEXT_CONTENT_BEGIN] ... [TEXT_CONTENT_END]` inline preview when enabled by profile
 - `[TEXT_PREVIEW_SKIPPED] agent=<profile>` when profile disables inline preview

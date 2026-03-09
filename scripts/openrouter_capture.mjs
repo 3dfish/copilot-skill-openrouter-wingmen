@@ -5,30 +5,19 @@ import process from "node:process";
 import readline from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
+const DEFAULT_PROVIDER = "openrouter";
 const DEFAULT_MODEL = "openrouter/auto";
-const DEFAULT_TASK = "general";
-const DEFAULT_REGION = "auto";
 const DEFAULT_AGENT_PROFILE = "github-copilot";
+
+const PROFILE_SET_ENV_KEY = "OPENROUTER_PROFILE_SET";
+const DEFAULT_ALIAS_ENV_KEY = "OPENROUTER_DEFAULT_ALIAS";
+const AGENT_PROFILE_ENV_KEY = "OPENCLAW_AGENT_PROFILE";
 
 const OUTPUT_DIR = path.join(process.cwd(), "openrouter");
 const ENV_FILE = path.join(OUTPUT_DIR, ".env");
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const ROUTING_CONFIG_FILE = path.join(SCRIPT_DIR, "gateway-routing.json");
 const AGENT_PROFILES_FILE = path.join(SCRIPT_DIR, "agent-profiles.json");
-
-const FALLBACK_ROUTING_CONFIG = {
-  version: 1,
-  defaultProvider: "openrouter",
-  regions: {
-    global: {
-      blockedModelPatterns: [],
-      tasks: {
-        general: [DEFAULT_MODEL],
-      },
-    },
-  },
-};
 
 const FALLBACK_AGENT_CONFIG = {
   default: DEFAULT_AGENT_PROFILE,
@@ -51,14 +40,11 @@ function parseArgs(argv) {
   const parsed = {
     prompt: "",
     promptFile: "",
-    model: "",
-    apiKey: "",
     images: [],
-    task: "",
-    region: DEFAULT_REGION,
+    alias: "",
+    defaultAlias: "",
     agentProfile: "",
-    allowBlockedModels: false,
-    listRoutes: false,
+    listAliases: false,
     saveEnv: false,
     help: false,
   };
@@ -80,28 +66,18 @@ function parseArgs(argv) {
       i += 1;
       continue;
     }
-    if (token === "--model") {
-      parsed.model = argv[i + 1] ?? "";
-      i += 1;
-      continue;
-    }
-    if (token === "--api-key") {
-      parsed.apiKey = argv[i + 1] ?? "";
-      i += 1;
-      continue;
-    }
     if (token === "--image") {
       parsed.images.push(argv[i + 1] ?? "");
       i += 1;
       continue;
     }
-    if (token === "--task") {
-      parsed.task = argv[i + 1] ?? "";
+    if (token === "--alias") {
+      parsed.alias = argv[i + 1] ?? "";
       i += 1;
       continue;
     }
-    if (token === "--region") {
-      parsed.region = argv[i + 1] ?? DEFAULT_REGION;
+    if (token === "--default-alias") {
+      parsed.defaultAlias = argv[i + 1] ?? "";
       i += 1;
       continue;
     }
@@ -110,12 +86,8 @@ function parseArgs(argv) {
       i += 1;
       continue;
     }
-    if (token === "--allow-blocked-models") {
-      parsed.allowBlockedModels = true;
-      continue;
-    }
-    if (token === "--list-routes") {
-      parsed.listRoutes = true;
+    if (token === "--list-aliases") {
+      parsed.listAliases = true;
       continue;
     }
     if (token === "--save-env") {
@@ -135,10 +107,10 @@ function parseArgs(argv) {
 
 function printHelp() {
   console.log(
-    "Usage: node openrouter_capture.mjs [--prompt \"<message>\" | --prompt-file <file>] [--image <path-or-url>] [--task <task>] [--region <global|cn-mainland|auto>] [--agent <profile>] [--model <model-id>] [--api-key <key>] [--allow-blocked-models] [--list-routes] [--save-env]"
+    "Usage: node openrouter_capture.mjs [--prompt \"<message>\" | --prompt-file <file>] [--image <path-or-url>] [--alias <alias>] [--default-alias <alias>] [--agent <profile>] [--list-aliases] [--save-env]"
   );
   console.log("Repeat --image to attach multiple images. If prompt is omitted and images are provided, image-only input is sent.");
-  console.log("Use --prompt-file for long markdown/text input to avoid shell quoting issues.");
+  console.log("Credential format in env setup: <alias>:<apikey>:<modelid> (at least one entry).");
 }
 
 async function loadJsonConfig(filePath, fallbackValue) {
@@ -151,119 +123,6 @@ async function loadJsonConfig(filePath, fallbackValue) {
   }
 }
 
-function compilePatterns(rawPatterns) {
-  const patterns = [];
-  for (const p of rawPatterns || []) {
-    if (typeof p !== "string" || !p.trim()) {
-      continue;
-    }
-    try {
-      patterns.push(new RegExp(p, "i"));
-    } catch {
-      // Ignore malformed regex patterns.
-    }
-  }
-  return patterns;
-}
-
-function isModelBlocked(modelId, compiledPatterns) {
-  const target = String(modelId || "").trim();
-  if (!target) {
-    return false;
-  }
-  return compiledPatterns.some((rule) => rule.test(target));
-}
-
-function resolveRegion(regionArg) {
-  const normalizedArg = String(regionArg || "").trim();
-  if (normalizedArg && normalizedArg !== DEFAULT_REGION) {
-    return normalizedArg;
-  }
-
-  const envRegion =
-    (process.env.OPENCLAW_REGION || process.env.OPENROUTER_REGION || process.env.GATEWAY_REGION || "")
-      .trim()
-      .toLowerCase();
-
-  if (envRegion && envRegion !== DEFAULT_REGION) {
-    return envRegion;
-  }
-
-  return "global";
-}
-
-function resolveRoute({ args, envModelId, routingConfig }) {
-  const regions = routingConfig?.regions || {};
-  const resolvedRegion = resolveRegion(args.region);
-  const regionPolicy = regions[resolvedRegion] || regions.global || FALLBACK_ROUTING_CONFIG.regions.global;
-
-  const task = String(args.task || DEFAULT_TASK).trim().toLowerCase() || DEFAULT_TASK;
-  const taskCandidates =
-    regionPolicy?.tasks?.[task] || regionPolicy?.tasks?.[DEFAULT_TASK] || [DEFAULT_MODEL];
-
-  const blockedPatterns = compilePatterns(regionPolicy?.blockedModelPatterns || []);
-  const argModel = String(args.model || "").trim();
-  const envModel = String(envModelId || "").trim();
-
-  if (argModel) {
-    const blocked = isModelBlocked(argModel, blockedPatterns);
-    if (blocked && !args.allowBlockedModels) {
-      throw new Error(
-        `Model blocked by routing policy for region=${resolvedRegion}: ${argModel}. Use --allow-blocked-models to override explicitly.`
-      );
-    }
-
-    return {
-      provider: routingConfig?.defaultProvider || "openrouter",
-      region: resolvedRegion,
-      task,
-      modelId: argModel,
-      source: "arg",
-      blockedByPolicy: blocked,
-      usedFallback: false,
-    };
-  }
-
-  if (envModel && (!isModelBlocked(envModel, blockedPatterns) || args.allowBlockedModels)) {
-    return {
-      provider: routingConfig?.defaultProvider || "openrouter",
-      region: resolvedRegion,
-      task,
-      modelId: envModel,
-      source: "env",
-      blockedByPolicy: isModelBlocked(envModel, blockedPatterns),
-      usedFallback: false,
-    };
-  }
-
-  for (const candidate of taskCandidates) {
-    if (!candidate) {
-      continue;
-    }
-    if (!isModelBlocked(candidate, blockedPatterns)) {
-      return {
-        provider: routingConfig?.defaultProvider || "openrouter",
-        region: resolvedRegion,
-        task,
-        modelId: candidate,
-        source: "route",
-        blockedByPolicy: false,
-        usedFallback: candidate === DEFAULT_MODEL,
-      };
-    }
-  }
-
-  return {
-    provider: routingConfig?.defaultProvider || "openrouter",
-    region: resolvedRegion,
-    task,
-    modelId: DEFAULT_MODEL,
-    source: "default",
-    blockedByPolicy: false,
-    usedFallback: true,
-  };
-}
-
 function resolveAgentProfile(agentArg, agentConfig) {
   const profiles = agentConfig?.profiles || {};
   const requested = String(agentArg || "").trim() || agentConfig?.default || DEFAULT_AGENT_PROFILE;
@@ -273,6 +132,159 @@ function resolveAgentProfile(agentArg, agentConfig) {
     key: profiles[requested] ? requested : "generic",
     ...profile,
   };
+}
+
+function parseProfileEntry(rawEntry) {
+  const value = String(rawEntry || "").trim();
+  if (!value) {
+    throw new Error("Profile entry is empty.");
+  }
+
+  const parts = value.split(":");
+  if (parts.length < 3) {
+    throw new Error(`Invalid profile entry: ${value}. Expected <alias>:<apikey>:<modelid>.`);
+  }
+
+  const alias = String(parts[0] || "").trim();
+  const apiKey = String(parts[1] || "").trim();
+  const modelId = String(parts.slice(2).join(":") || "").trim();
+
+  if (!alias || !apiKey || !modelId) {
+    throw new Error(`Invalid profile entry: ${value}. Expected <alias>:<apikey>:<modelid>.`);
+  }
+
+  if (!/^[A-Za-z0-9._-]+$/.test(alias)) {
+    throw new Error(`Invalid alias: ${alias}. Allowed characters: letters, numbers, dot, underscore, hyphen.`);
+  }
+
+  return { alias, apiKey, modelId };
+}
+
+function parseProfileSet(rawProfileSet) {
+  const source = String(rawProfileSet || "").trim();
+  const profileMap = new Map();
+
+  if (!source) {
+    return profileMap;
+  }
+
+  for (const chunk of source.split(",")) {
+    const item = chunk.trim();
+    if (!item) {
+      continue;
+    }
+    const parsed = parseProfileEntry(item);
+    profileMap.set(parsed.alias, parsed);
+  }
+
+  return profileMap;
+}
+
+function serializeProfileSet(profileMap) {
+  return Array.from(profileMap.values())
+    .map((item) => `${item.alias}:${item.apiKey}:${item.modelId}`)
+    .join(",");
+}
+
+async function promptProfileSetFromUser() {
+  if (!process.stdin.isTTY) {
+    throw new Error(
+      `${PROFILE_SET_ENV_KEY} is missing and interactive setup is unavailable. Set ${PROFILE_SET_ENV_KEY} with at least one <alias>:<apikey>:<modelid> entry.`
+    );
+  }
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const profileMap = new Map();
+
+  try {
+    while (true) {
+      const hint =
+        profileMap.size === 0
+          ? "Enter profile <alias>:<apikey>:<modelid> (required): "
+          : "Enter profile <alias>:<apikey>:<modelid> (blank to finish): ";
+      const answer = (await rl.question(hint)).trim();
+
+      if (!answer) {
+        if (profileMap.size === 0) {
+          console.log("At least one profile is required.");
+          continue;
+        }
+        break;
+      }
+
+      try {
+        const parsed = parseProfileEntry(answer);
+        profileMap.set(parsed.alias, parsed);
+        console.log(`Registered alias: ${parsed.alias}`);
+      } catch (error) {
+        console.log(`[WARN] ${error?.message || String(error)}`);
+      }
+    }
+
+    const aliases = Array.from(profileMap.keys());
+    const fallbackDefault = aliases[0];
+
+    while (true) {
+      const rawDefault = (await rl.question(`Default alias [${fallbackDefault}]: `)).trim();
+      const selectedDefault = rawDefault || fallbackDefault;
+
+      if (profileMap.has(selectedDefault)) {
+        return { profileMap, defaultAlias: selectedDefault };
+      }
+
+      console.log(`Unknown alias: ${selectedDefault}. Available aliases: ${aliases.join(", ")}`);
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+async function resolveSelectedAlias(argsAlias, defaultAlias, profileMap) {
+  const aliases = Array.from(profileMap.keys());
+  if (aliases.length === 0) {
+    throw new Error("No profiles available. Provide at least one profile entry.");
+  }
+
+  if (argsAlias) {
+    const normalized = String(argsAlias).trim();
+    if (!profileMap.has(normalized)) {
+      throw new Error(`Unknown alias: ${normalized}. Available aliases: ${aliases.join(", ")}`);
+    }
+    return { alias: normalized, source: "arg" };
+  }
+
+  const fallbackDefault = defaultAlias && profileMap.has(defaultAlias) ? defaultAlias : aliases[0];
+
+  if (process.stdin.isTTY) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      const answer = (await rl.question(`Alias to use [${aliases.join("/")}] (default: ${fallbackDefault}): `)).trim();
+      const selected = answer || fallbackDefault;
+      if (!profileMap.has(selected)) {
+        throw new Error(`Unknown alias: ${selected}. Available aliases: ${aliases.join(", ")}`);
+      }
+      return { alias: selected, source: answer ? "prompt" : "default" };
+    } finally {
+      rl.close();
+    }
+  }
+
+  return { alias: fallbackDefault, source: "default" };
+}
+
+function listAliases(profileMap, defaultAlias) {
+  const aliases = Array.from(profileMap.keys());
+  if (aliases.length === 0) {
+    console.log("No aliases configured.");
+    return;
+  }
+
+  console.log("Configured aliases:");
+  for (const alias of aliases) {
+    const profile = profileMap.get(alias);
+    const isDefault = alias === defaultAlias ? " (default)" : "";
+    console.log(`- ${alias}${isDefault} -> ${profile.modelId}`);
+  }
 }
 
 function looksLikeRemoteImage(input) {
@@ -386,10 +398,9 @@ function envQuote(value) {
 async function saveWorkspaceEnvFile(runtimeEnv) {
   const content = [
     "# OpenRouter/OpenClaw runtime variables for this workspace",
-    `OPENROUTER_API_KEY=${envQuote(runtimeEnv.apiKey)}`,
-    `OPENROUTER_MODEL_ID=${envQuote(runtimeEnv.modelId)}`,
-    `OPENROUTER_REGION=${envQuote(runtimeEnv.region)}`,
-    `OPENCLAW_AGENT_PROFILE=${envQuote(runtimeEnv.agentProfile)}`,
+    `${PROFILE_SET_ENV_KEY}=${envQuote(runtimeEnv.profileSetRaw)}`,
+    `${DEFAULT_ALIAS_ENV_KEY}=${envQuote(runtimeEnv.defaultAlias)}`,
+    `${AGENT_PROFILE_ENV_KEY}=${envQuote(runtimeEnv.agentProfile)}`,
     "",
   ].join("\n");
 
@@ -475,26 +486,23 @@ function printRouteMarker(routeInfo, agentProfile) {
 
   const payload = {
     provider: routeInfo.provider,
-    region: routeInfo.region,
-    task: routeInfo.task,
+    alias: routeInfo.alias,
     model: routeInfo.modelId,
     source: routeInfo.source,
-    fallback: routeInfo.usedFallback,
     agent: agentProfile.key,
   };
 
   console.log(`[ROUTE] ${JSON.stringify(payload)}`);
 }
 
-async function writeTextResult(modelId, text, routeInfo, agentProfile) {
+async function writeTextResult(modelId, alias, text, agentProfile) {
   const filePath = path.join(OUTPUT_DIR, `${stampNow()}-response.md`);
   const markdown = [
     "# OpenRouter Response",
     "",
+    `- Alias: ${alias}`,
     `- Model: \`${modelId}\``,
     `- Time: ${new Date().toISOString()}`,
-    `- Region: ${routeInfo.region}`,
-    `- Task: ${routeInfo.task}`,
     `- Agent Profile: ${agentProfile.key}`,
     "",
     "---",
@@ -610,30 +618,34 @@ async function getPrompt(parsedArgs) {
   return answer;
 }
 
-async function ensureRuntimeEnv(parsedArgs) {
+async function loadRuntimeState() {
   await mkdir(OUTPUT_DIR, { recursive: true });
   await loadWorkspaceEnvFile();
 
-  const envApiKey = (process.env.OPENROUTER_API_KEY || "").trim();
-  const envModelId = (process.env.OPENROUTER_MODEL_ID || "").trim();
-  const envRegion = (process.env.OPENROUTER_REGION || "").trim();
-  const envAgentProfile = (process.env.OPENCLAW_AGENT_PROFILE || "").trim();
-  const argApiKey = (parsedArgs.apiKey || "").trim();
+  const envProfileSetRaw = String(process.env[PROFILE_SET_ENV_KEY] || "").trim();
+  const envDefaultAlias = String(process.env[DEFAULT_ALIAS_ENV_KEY] || "").trim();
+  const envAgentProfile = String(process.env[AGENT_PROFILE_ENV_KEY] || "").trim();
 
-  const apiKey = argApiKey || envApiKey;
-  if (!apiKey) {
-    throw new Error(
-      "OPENROUTER_API_KEY is required. Provide it via --api-key, environment variable, or openrouter/.env."
-    );
+  const profileMap = parseProfileSet(envProfileSetRaw);
+
+  if (profileMap.size === 0) {
+    const seeded = await promptProfileSetFromUser();
+    return {
+      profileMap: seeded.profileMap,
+      defaultAlias: seeded.defaultAlias,
+      envAgentProfile,
+      profileSeededInteractively: true,
+    };
   }
 
+  const aliases = Array.from(profileMap.keys());
+  const defaultAlias = profileMap.has(envDefaultAlias) ? envDefaultAlias : aliases[0];
+
   return {
-    apiKey,
-    argApiKey,
-    envApiKey,
-    envModelId,
-    envRegion,
+    profileMap,
+    defaultAlias,
     envAgentProfile,
+    profileSeededInteractively: false,
   };
 }
 
@@ -644,55 +656,65 @@ async function main() {
     return;
   }
 
-  const routingConfig = await loadJsonConfig(ROUTING_CONFIG_FILE, FALLBACK_ROUTING_CONFIG);
   const agentConfig = await loadJsonConfig(AGENT_PROFILES_FILE, FALLBACK_AGENT_CONFIG);
+  const runtime = await loadRuntimeState();
 
-  if (args.listRoutes) {
-    console.log(JSON.stringify(routingConfig, null, 2));
+  if (args.defaultAlias && !runtime.profileMap.has(args.defaultAlias)) {
+    throw new Error(
+      `Unknown --default-alias: ${args.defaultAlias}. Available aliases: ${Array.from(runtime.profileMap.keys()).join(", ")}`
+    );
+  }
+
+  const configuredDefaultAlias = args.defaultAlias || runtime.defaultAlias;
+
+  if (args.listAliases) {
+    listAliases(runtime.profileMap, configuredDefaultAlias);
     return;
   }
 
-  const runtime = await ensureRuntimeEnv(args);
-  const routeInfo = resolveRoute({
-    args,
-    envModelId: runtime.envModelId,
-    routingConfig,
-  });
-  const agentProfile = resolveAgentProfile(args.agentProfile, agentConfig);
+  const agentProfile = resolveAgentProfile(args.agentProfile || runtime.envAgentProfile, agentConfig);
+  const selectedAlias = await resolveSelectedAlias(args.alias, configuredDefaultAlias, runtime.profileMap);
+  const selectedProfile = runtime.profileMap.get(selectedAlias.alias);
 
   const shouldSaveEnv =
     args.saveEnv ||
-    !runtime.envApiKey ||
-    !runtime.envModelId ||
-    !runtime.envRegion ||
-    !runtime.envAgentProfile;
+    runtime.profileSeededInteractively ||
+    !process.env[PROFILE_SET_ENV_KEY] ||
+    !process.env[DEFAULT_ALIAS_ENV_KEY] ||
+    !process.env[AGENT_PROFILE_ENV_KEY];
 
-  process.env.OPENROUTER_API_KEY = runtime.apiKey;
-  process.env.OPENROUTER_MODEL_ID = routeInfo.modelId;
-  process.env.OPENROUTER_REGION = routeInfo.region;
-  process.env.OPENCLAW_AGENT_PROFILE = agentProfile.key;
+  process.env[PROFILE_SET_ENV_KEY] = serializeProfileSet(runtime.profileMap);
+  process.env[DEFAULT_ALIAS_ENV_KEY] = configuredDefaultAlias;
+  process.env[AGENT_PROFILE_ENV_KEY] = agentProfile.key;
 
   if (shouldSaveEnv) {
     await saveWorkspaceEnvFile({
-      apiKey: runtime.apiKey,
-      modelId: routeInfo.modelId,
-      region: routeInfo.region,
-      agentProfile: agentProfile.key,
+      profileSetRaw: process.env[PROFILE_SET_ENV_KEY],
+      defaultAlias: process.env[DEFAULT_ALIAS_ENV_KEY],
+      agentProfile: process.env[AGENT_PROFILE_ENV_KEY],
     });
   }
 
-  printRouteMarker(routeInfo, agentProfile);
+  printRouteMarker(
+    {
+      provider: DEFAULT_PROVIDER,
+      alias: selectedAlias.alias,
+      modelId: selectedProfile.modelId,
+      source: selectedAlias.source,
+    },
+    agentProfile
+  );
 
   const prompt = await getPrompt(args);
   const imageUrls = await resolveImageInputs(args.images);
   const userContent = buildUserMessageContent(prompt, imageUrls);
 
   const { OpenRouter } = await import("@openrouter/sdk");
-  const client = new OpenRouter({ apiKey: runtime.apiKey });
+  const client = new OpenRouter({ apiKey: selectedProfile.apiKey });
 
   const response = await client.chat.send({
     chatGenerationParams: {
-      model: routeInfo.modelId || DEFAULT_MODEL,
+      model: selectedProfile.modelId || DEFAULT_MODEL,
       messages: [
         {
           role: "user",
@@ -705,7 +727,7 @@ async function main() {
   const parsed = extractTextAndImages(response);
 
   if (parsed.text) {
-    await writeTextResult(routeInfo.modelId || DEFAULT_MODEL, parsed.text, routeInfo, agentProfile);
+    await writeTextResult(selectedProfile.modelId || DEFAULT_MODEL, selectedAlias.alias, parsed.text, agentProfile);
   }
 
   if (parsed.imageUrls.length > 0) {
