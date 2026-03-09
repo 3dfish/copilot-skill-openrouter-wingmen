@@ -17,7 +17,7 @@ const SUPPORTED_AGENT_KEYS = ["github-copilot", "claude-code", "cursor", "codex-
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const WORKSPACE_DIR = path.resolve(SCRIPT_DIR, "..");
-const OUTPUT_DIR = WORKSPACE_DIR;
+const OUTPUT_DIR = path.join(process.cwd(), "openrouter");
 const ENV_DIR = WORKSPACE_DIR; // .env and .env.template location
 const ENV_FILE = path.join(ENV_DIR, ".env");
 const AGENT_PROFILES_FILE = path.join(SCRIPT_DIR, "agent-profiles.json");

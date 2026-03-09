@@ -53,10 +53,10 @@ OPENCLAW_AGENT_PROFILE=github-copilot
 
 ## Output Contract
 
-- Save outputs under `<skill-dir>/` (skill root, no `openrouter/` subfolder).
+- Save outputs under `<cwd>/openrouter/`.
 - Dialogue outputs: `*-dialogue.md` (question + answer; attachment sections record paths only)
 - Attachment outputs: `*-attachment-<n>.<ext>` files
-- Credentials file: `.env`
+- Credentials file: `<skill-dir>/.env`
 - Always print OpenRouter reply immediately in chat.
 
 ## Security Rules (Mandatory)

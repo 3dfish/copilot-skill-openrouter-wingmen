@@ -141,13 +141,13 @@ OPENCLAW_AGENT_PROFILE=github-copilot
 
 ## 输出约定
 
-脚本会将输出直接写入技能根目录（仓库根目录）：
+脚本会在当前工作目录（`cwd`）下创建 `openrouter/` 并输出：
 
 - 对话记录：`*-dialogue.md`（记录每次提问与回答）
 - 输入附件：`*-input-attachment-<n>.<ext>`
 - 输出附件：`*-attachment-<n>.<ext>`
 - 原始兜底：`*-raw-response.md`
-- 运行环境：根目录 `.env`
+- 运行环境：技能根目录 `.env`
 
 说明：
 
