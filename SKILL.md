@@ -127,6 +127,15 @@ node <skill-dir>/scripts/openrouter_capture.mjs \
   --save-env
 ```
 
+Long prompt template (recommended for multi-line docs/specs):
+
+```bash
+node <skill-dir>/scripts/openrouter_capture.mjs \
+  --prompt-file <path-to-prompt.txt> \
+  --model "<resolved_model_id>" \
+  --save-env
+```
+
 With image input (repeatable):
 
 ```bash
@@ -136,6 +145,12 @@ node <skill-dir>/scripts/openrouter_capture.mjs \
   --model "<resolved_model_id>" \
   --save-env
 ```
+
+## Reliability Notes
+
+- For long prompts, prefer `--prompt-file` over shell heredoc/complex quoting.
+- Treat terminal-rendered body as preview only; use `[TEXT_FILE]` path as source of truth for full output.
+- If output seems cut off, inspect the saved file first, then request continuation in a follow-up call.
 
 ## Completion Checks
 

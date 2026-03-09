@@ -10,7 +10,15 @@ const ENV_FILE = path.join(OUTPUT_DIR, ".env");
 
 function parseArgs(argv) {
   const positional = [];
-  const parsed = { prompt: "", model: "", apiKey: "", images: [], saveEnv: false, help: false };
+  const parsed = {
+    prompt: "",
+    promptFile: "",
+    model: "",
+    apiKey: "",
+    images: [],
+    saveEnv: false,
+    help: false,
+  };
 
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
@@ -20,6 +28,11 @@ function parseArgs(argv) {
     }
     if (token === "--prompt") {
       parsed.prompt = argv[i + 1] ?? "";
+      i += 1;
+      continue;
+    }
+    if (token === "--prompt-file") {
+      parsed.promptFile = argv[i + 1] ?? "";
       i += 1;
       continue;
     }
@@ -53,8 +66,11 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log("Usage: node openrouter_capture.mjs --prompt \"<message>\" [--image <path-or-url>] [--model <model-id>] [--api-key <key>] [--save-env]");
+  console.log(
+    "Usage: node openrouter_capture.mjs [--prompt \"<message>\" | --prompt-file <file>] [--image <path-or-url>] [--model <model-id>] [--api-key <key>] [--save-env]"
+  );
   console.log("Repeat --image to attach multiple images. If prompt is omitted and images are provided, image-only input is sent.");
+  console.log("Use --prompt-file for long markdown/text input to avoid shell quoting issues.");
 }
 
 function looksLikeRemoteImage(input) {
@@ -318,6 +334,22 @@ async function writeImageResults(imageUrls) {
 async function getPrompt(parsedArgs) {
   if (parsedArgs.prompt && parsedArgs.prompt.trim()) {
     return parsedArgs.prompt.trim();
+  }
+
+  if (parsedArgs.promptFile && parsedArgs.promptFile.trim()) {
+    const resolved = path.isAbsolute(parsedArgs.promptFile)
+      ? parsedArgs.promptFile
+      : path.resolve(process.cwd(), parsedArgs.promptFile);
+
+    try {
+      const fromFile = await readFile(resolved, "utf8");
+      if (fromFile.trim()) {
+        return fromFile.trim();
+      }
+      throw new Error(`Prompt file is empty: ${resolved}`);
+    } catch (error) {
+      throw new Error(`Failed to read --prompt-file: ${resolved} (${error?.message || String(error)})`);
+    }
   }
 
   if (!process.stdin.isTTY) {

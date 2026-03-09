@@ -44,3 +44,14 @@ Use this checklist after changing relay behavior, command parsing, output render
 - [ ] `--image` with local path works.
 - [ ] `--image` with URL works.
 - [ ] Multiple `--image` arguments work.
+
+## Prompt Input Robustness
+
+- [ ] `--prompt-file <path>` loads multi-line text correctly.
+- [ ] `--prompt-file` + multiple `--image` arguments work together.
+- [ ] Missing/empty `--prompt-file` yields clear error message.
+
+## Long Output Handling
+
+- [ ] `[TEXT_FILE]` is always printed when text exists.
+- [ ] Saved markdown file preserves complete assistant text for downstream reads.
