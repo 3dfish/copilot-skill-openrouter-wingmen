@@ -4,7 +4,7 @@
 
 核心变化：不再使用单一 `apikey + model`，而是使用凭据条目集合：
 
-- `<alias>:<apikey>:<modelid>`
+- 通过 4 次交互录入：`apikey -> modelid -> 别名 -> 备注（可选）`
 - 至少配置一条
 - 调用时通过 `alias` 选择模型与密钥
 
@@ -46,15 +46,12 @@ npm install --prefix ./scripts
 
 首次运行且 `openrouter/.env` 不存在 profile 集合时，脚本会要求输入：
 
-- `<alias>:<apikey>:<modelid>`（至少一条）
+- API key（必填）
+- Model id（必填）
+- 别名 alias（必填）
+- 备注 note（可选）
+- 是否继续新增下一条
 - 默认别名（default alias）
-
-示例输入：
-
-```text
-work:sk-or-v1-xxxxx:deepseek/deepseek-chat
-default:sk-or-v1-yyyyy:openrouter/auto
-```
 
 ## 快速开始
 
@@ -74,13 +71,13 @@ node ./scripts/openrouter_capture.mjs \
   --prompt-file ./tmp/prompt.txt
 ```
 
-3. 图片输入
+3. 附件输入（通用）
 
 ```bash
 node ./scripts/openrouter_capture.mjs \
   --alias work \
-  --prompt "分析这张图" \
-  --image ./assets/a.png
+  --prompt "分析这个附件" \
+  --attachment ./assets/a.pdf
 ```
 
 4. 列出已配置别名
@@ -93,7 +90,8 @@ node ./scripts/openrouter_capture.mjs --list-aliases
 
 - `--prompt <text>`: 直接传入提示词
 - `--prompt-file <path>`: 从文件读取多行提示词
-- `--image <path-or-url>`: 传入图片，可重复
+- `--attachment <path-or-url>`: 传入附件（本地路径/URL/data URL），可重复
+- `--image <path-or-url>`: 兼容旧参数，等价于 `--attachment`（已废弃）
 - `--alias <alias>`: 本次调用使用的别名
 - `--default-alias <alias>`: 指定默认别名（配合 `--save-env` 持久化）
 - `--agent <profile>`: 输出 profile（`github-copilot/claude-code/cursor/codex-cli/generic`）
@@ -105,31 +103,35 @@ node ./scripts/openrouter_capture.mjs --list-aliases
 
 脚本把 profile 集合写入 `openrouter/.env`：
 
-- `OPENROUTER_PROFILE_SET="alias1:key1:model1,alias2:key2:model2"`
+- `OPENROUTER_PROFILE_SET='[{"alias":"default","apiKey":"***","modelId":"openrouter/auto","note":""}]'`
 - `OPENROUTER_DEFAULT_ALIAS="alias1"`
 - `OPENCLAW_AGENT_PROFILE="github-copilot"`
 
 注意：
 
-- profile 条目格式必须是 `<alias>:<apikey>:<modelid>`
 - `alias` 允许字符：字母、数字、`.`、`_`、`-`
+- 旧格式（`alias:key:model`）已移除，不再支持
 
 ## 输出约定
 
 脚本会在仓库根目录创建 `openrouter/` 并输出：
 
-- 文本文件：`*-response.md`
-- 图片文件：`*-image-<n>.<ext>`
+- 对话记录：`*-dialogue.md`（记录每次提问与回答）
+- 输入附件：`*-input-attachment-<n>.<ext>`
+- 输出附件：`*-attachment-<n>.<ext>`
 - 原始兜底：`*-raw-response.md`
 - 运行环境：`openrouter/.env`
+
+说明：
+
+- 对话 markdown 中，附件仅记录文件路径，不内联附件内容。
 
 终端标记：
 
 - `[ROUTE] <json>`: 当前 provider/alias/model/agent
 - `[TEXT_FILE] <path>`
 - `[TEXT_CONTENT_BEGIN] ... [TEXT_CONTENT_END]`
-- `[TEXT_PREVIEW_SKIPPED] agent=<profile>`（某些 profile）
-- `[IMAGE_FILE] <path>`
+- `[ATTACHMENT_FILE] <path>`
 - `[RAW_FILE] <path>`
 
 ## 多 Agent 适配
@@ -141,6 +143,11 @@ node ./scripts/openrouter_capture.mjs --list-aliases
 - Cursor
 - Codex CLI
 - Generic fallback
+
+交互一致性约束：
+
+- 所有 agent 统一使用聊天/文本输入交互
+- 不依赖卡片或 popup 控件
 
 详见 `references/agent-compatibility.md`。
 

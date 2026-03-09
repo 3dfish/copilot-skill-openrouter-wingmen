@@ -28,7 +28,7 @@ Use this when the user wants you to be a messenger only.
 
 Flow:
 
-1. First turn popup initialization:
+1. First turn chat initialization:
    - Ask first relay message.
    - Ask alias (optional; default alias can be used).
 2. Later turns:
@@ -41,24 +41,26 @@ Flow:
 ## Alias Credential Set (Mandatory)
 
 - Do not use a single `OPENROUTER_API_KEY + OPENROUTER_MODEL_ID` pair.
-- Use profile entry format: `<alias>:<apikey>:<modelid>`.
+- Use 4-step interactive profile input: `apikey -> modelid -> alias -> note(optional)`.
 - At least one profile entry must exist.
 - Store profiles in `openrouter/.env` as `OPENROUTER_PROFILE_SET`.
 - Use `OPENROUTER_DEFAULT_ALIAS` as fallback alias.
+- Legacy `alias:key:model` text format is removed and must not be used.
 
 If no profile set exists and the script is interactive, prompt user to enter profile entries.
 
 ## Multi-Agent Compatibility
 
-- The script supports `--agent` profiles to adapt output behavior for different runtimes.
+- The script supports `--agent` profiles for runtime identification only.
 - Supported profiles: `github-copilot`, `claude-code`, `cursor`, `codex-cli`, `generic`.
-- For long outputs and `claude-code`, prefer file-first handling (`[TEXT_FILE]`) instead of inline previews.
+- Interaction must stay consistent across all agents: use chat/text input only.
+- Do not rely on popup/card UI or agent-specific interaction widgets.
 
 ## Output Contract
 
 - Save outputs under `<workspace>/openrouter/`.
-- Text outputs: `*.md`
-- Image outputs: image files (`png/jpg/jpeg/webp/gif/bmp/svg`)
+- Dialogue outputs: `*-dialogue.md` (question + answer; attachment sections record paths only)
+- Attachment outputs: `*-attachment-<n>.<ext>` files
 - Credentials file: `openrouter/.env`
 - Always print OpenRouter reply immediately in chat.
 
@@ -70,9 +72,9 @@ If no profile set exists and the script is interactive, prompt user to enter pro
 
 ## Large File Authorization (Mandatory)
 
-Before reading saved OpenRouter output files (`.md` or images):
+Before reading saved OpenRouter output files (`.md` or attachments):
 
-- If file size is greater than 50KB (51200 bytes), ask user authorization via popup first.
+- If file size is greater than 50KB (51200 bytes), ask user authorization in chat first.
 - If user refuses/skips, do not read content; only report path and size.
 
 ## Required Assets
@@ -111,13 +113,13 @@ node <skill-dir>/scripts/openrouter_capture.mjs \
   --agent <agent-profile>
 ```
 
-With image input (repeatable):
+With attachment input (repeatable):
 
 ```bash
 node <skill-dir>/scripts/openrouter_capture.mjs \
   --alias <alias> \
   --prompt "<user-prompt>" \
-  --image <path-or-url> \
+  --attachment <path-or-url> \
   --agent <agent-profile>
 ```
 

@@ -2,20 +2,24 @@
 
 This skill can be used from multiple agent runtimes via `openrouter_capture.mjs --agent <profile>`.
 
+Interaction policy:
+
+- All agents use the same chat/text input flow.
+- Do not rely on card-style or popup-specific UI.
+- Agent profiles are kept for runtime identification and diagnostics.
+
 ## Supported Profiles
 
 - `github-copilot`
   - Default profile.
-  - Prints route marker and inline response preview.
 - `claude-code`
-  - File-first output for long responses.
-  - Prints route marker and skips inline text preview.
+  - Same interaction/output behavior as other profiles.
 - `cursor`
-  - Interactive profile with route marker and inline preview.
+  - Same interaction/output behavior as other profiles.
 - `codex-cli`
-  - Terminal-friendly profile with route marker and inline preview.
+  - Same interaction/output behavior as other profiles.
 - `generic`
-  - Fallback profile for unknown agents.
+  - Fallback profile for unknown agents, with same behavior.
 
 ## Usage Examples
 
@@ -37,5 +41,5 @@ node ./scripts/openrouter_capture.mjs \
 
 - `[ROUTE] { ... }` call metadata for diagnostics
 - `[TEXT_FILE] <path>` canonical markdown output
-- `[TEXT_CONTENT_BEGIN] ... [TEXT_CONTENT_END]` inline preview when enabled by profile
-- `[TEXT_PREVIEW_SKIPPED] agent=<profile>` when profile disables inline preview
+- `[TEXT_CONTENT_BEGIN] ... [TEXT_CONTENT_END]` inline preview (all profiles)
+- `[ATTACHMENT_FILE] <path>` saved attachment outputs when the model returns attachments

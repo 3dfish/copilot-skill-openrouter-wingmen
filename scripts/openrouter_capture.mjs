@@ -40,7 +40,7 @@ function parseArgs(argv) {
   const parsed = {
     prompt: "",
     promptFile: "",
-    images: [],
+    attachments: [],
     alias: "",
     defaultAlias: "",
     agentProfile: "",
@@ -66,8 +66,8 @@ function parseArgs(argv) {
       i += 1;
       continue;
     }
-    if (token === "--image") {
-      parsed.images.push(argv[i + 1] ?? "");
+    if (token === "--attachment" || token === "--image") {
+      parsed.attachments.push(argv[i + 1] ?? "");
       i += 1;
       continue;
     }
@@ -107,10 +107,11 @@ function parseArgs(argv) {
 
 function printHelp() {
   console.log(
-    "Usage: node openrouter_capture.mjs [--prompt \"<message>\" | --prompt-file <file>] [--image <path-or-url>] [--alias <alias>] [--default-alias <alias>] [--agent <profile>] [--list-aliases] [--save-env]"
+    "Usage: node openrouter_capture.mjs [--prompt \"<message>\" | --prompt-file <file>] [--attachment <path-or-url>] [--alias <alias>] [--default-alias <alias>] [--agent <profile>] [--list-aliases] [--save-env]"
   );
-  console.log("Repeat --image to attach multiple images. If prompt is omitted and images are provided, image-only input is sent.");
-  console.log("Credential format in env setup: <alias>:<apikey>:<modelid> (at least one entry).");
+  console.log("Repeat --attachment to attach multiple files. If prompt is omitted and attachments are provided, attachment-only input is sent.");
+  console.log("`--image` remains available as a deprecated alias of `--attachment`.");
+  console.log("Credential setup uses 4-step interaction per entry: apikey -> modelid -> alias -> note(optional).");
 }
 
 async function loadJsonConfig(filePath, fallbackValue) {
@@ -134,30 +135,25 @@ function resolveAgentProfile(agentArg, agentConfig) {
   };
 }
 
-function parseProfileEntry(rawEntry) {
-  const value = String(rawEntry || "").trim();
-  if (!value) {
-    throw new Error("Profile entry is empty.");
+function parseProfileObject(rawObject, indexHint = "?") {
+  if (!rawObject || typeof rawObject !== "object") {
+    throw new Error(`Invalid profile object at index=${indexHint}.`);
   }
 
-  const parts = value.split(":");
-  if (parts.length < 3) {
-    throw new Error(`Invalid profile entry: ${value}. Expected <alias>:<apikey>:<modelid>.`);
-  }
-
-  const alias = String(parts[0] || "").trim();
-  const apiKey = String(parts[1] || "").trim();
-  const modelId = String(parts.slice(2).join(":") || "").trim();
+  const alias = String(rawObject.alias || "").trim();
+  const apiKey = String(rawObject.apiKey || "").trim();
+  const modelId = String(rawObject.modelId || "").trim();
+  const note = String(rawObject.note || "").trim();
 
   if (!alias || !apiKey || !modelId) {
-    throw new Error(`Invalid profile entry: ${value}. Expected <alias>:<apikey>:<modelid>.`);
+    throw new Error(`Invalid profile object at index=${indexHint}. alias/apiKey/modelId are required.`);
   }
 
   if (!/^[A-Za-z0-9._-]+$/.test(alias)) {
     throw new Error(`Invalid alias: ${alias}. Allowed characters: letters, numbers, dot, underscore, hyphen.`);
   }
 
-  return { alias, apiKey, modelId };
+  return { alias, apiKey, modelId, note };
 }
 
 function parseProfileSet(rawProfileSet) {
@@ -168,28 +164,48 @@ function parseProfileSet(rawProfileSet) {
     return profileMap;
   }
 
-  for (const chunk of source.split(",")) {
-    const item = chunk.trim();
-    if (!item) {
-      continue;
-    }
-    const parsed = parseProfileEntry(item);
-    profileMap.set(parsed.alias, parsed);
+  if (!source.startsWith("[") && !source.startsWith("{")) {
+    throw new Error(
+      `Invalid ${PROFILE_SET_ENV_KEY} format. Only JSON profile set is supported now.`
+    );
   }
 
+  const parsed = JSON.parse(source);
+  const items = Array.isArray(parsed) ? parsed : [parsed];
+  items.forEach((item, idx) => {
+    const profile = parseProfileObject(item, idx);
+    profileMap.set(profile.alias, profile);
+  });
   return profileMap;
 }
 
 function serializeProfileSet(profileMap) {
-  return Array.from(profileMap.values())
-    .map((item) => `${item.alias}:${item.apiKey}:${item.modelId}`)
-    .join(",");
+  return JSON.stringify(Array.from(profileMap.values()));
+}
+
+async function askRequiredInput(rl, question, validateFn) {
+  while (true) {
+    const value = (await rl.question(question)).trim();
+    if (!value) {
+      console.log("This field is required.");
+      continue;
+    }
+    if (typeof validateFn === "function") {
+      try {
+        validateFn(value);
+      } catch (error) {
+        console.log(`[WARN] ${error?.message || String(error)}`);
+        continue;
+      }
+    }
+    return value;
+  }
 }
 
 async function promptProfileSetFromUser() {
   if (!process.stdin.isTTY) {
     throw new Error(
-      `${PROFILE_SET_ENV_KEY} is missing and interactive setup is unavailable. Set ${PROFILE_SET_ENV_KEY} with at least one <alias>:<apikey>:<modelid> entry.`
+      `${PROFILE_SET_ENV_KEY} is missing and interactive setup is unavailable. Initialize at least one profile in interactive mode first.`
     );
   }
 
@@ -198,26 +214,24 @@ async function promptProfileSetFromUser() {
 
   try {
     while (true) {
-      const hint =
-        profileMap.size === 0
-          ? "Enter profile <alias>:<apikey>:<modelid> (required): "
-          : "Enter profile <alias>:<apikey>:<modelid> (blank to finish): ";
-      const answer = (await rl.question(hint)).trim();
-
-      if (!answer) {
-        if (profileMap.size === 0) {
-          console.log("At least one profile is required.");
-          continue;
+      const apiKey = await askRequiredInput(rl, "API key (required): ");
+      const modelId = await askRequiredInput(rl, "Model id (required): ");
+      const alias = await askRequiredInput(rl, "Alias (required): ", (value) => {
+        if (!/^[A-Za-z0-9._-]+$/.test(value)) {
+          throw new Error("Alias can only contain letters, numbers, dot, underscore, hyphen.");
         }
-        break;
-      }
+      });
+      const note = (await rl.question("Note (optional): ")).trim();
 
-      try {
-        const parsed = parseProfileEntry(answer);
-        profileMap.set(parsed.alias, parsed);
-        console.log(`Registered alias: ${parsed.alias}`);
-      } catch (error) {
-        console.log(`[WARN] ${error?.message || String(error)}`);
+      const parsed = parseProfileObject({ alias, apiKey, modelId, note }, profileMap.size + 1);
+      profileMap.set(parsed.alias, parsed);
+      console.log(`Registered alias: ${parsed.alias}`);
+
+      if (profileMap.size >= 1) {
+        const addMore = (await rl.question("Add another profile? [y/N]: ")).trim().toLowerCase();
+        if (addMore !== "y" && addMore !== "yes") {
+          break;
+        }
       }
     }
 
@@ -283,53 +297,199 @@ function listAliases(profileMap, defaultAlias) {
   for (const alias of aliases) {
     const profile = profileMap.get(alias);
     const isDefault = alias === defaultAlias ? " (default)" : "";
-    console.log(`- ${alias}${isDefault} -> ${profile.modelId}`);
+    const note = profile.note ? ` | note: ${profile.note}` : "";
+    console.log(`- ${alias}${isDefault} -> ${profile.modelId}${note}`);
   }
-}
-
-function looksLikeRemoteImage(input) {
-  return /^https?:\/\//i.test(input) || /^data:/i.test(input);
 }
 
 function guessMimeFromPath(filePath) {
   const ext = path.extname(filePath).toLowerCase();
-  if (ext === ".png") return "image/png";
-  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
-  if (ext === ".webp") return "image/webp";
-  if (ext === ".gif") return "image/gif";
-  if (ext === ".bmp") return "image/bmp";
-  if (ext === ".svg") return "image/svg+xml";
+  const mimeByExtension = {
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".json": "application/json",
+    ".csv": "text/csv",
+    ".tsv": "text/tab-separated-values",
+    ".xml": "application/xml",
+    ".yaml": "application/yaml",
+    ".yml": "application/yaml",
+    ".html": "text/html",
+    ".css": "text/css",
+    ".js": "text/javascript",
+    ".mjs": "text/javascript",
+    ".cjs": "text/javascript",
+    ".ts": "application/typescript",
+    ".pdf": "application/pdf",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".zip": "application/zip",
+    ".gz": "application/gzip",
+    ".tar": "application/x-tar",
+    ".7z": "application/x-7z-compressed",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".ogg": "audio/ogg",
+    ".flac": "audio/flac",
+    ".m4a": "audio/mp4",
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".webm": "video/webm",
+    ".avi": "video/x-msvideo",
+    ".mkv": "video/x-matroska",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".svg": "image/svg+xml",
+  };
+  if (mimeByExtension[ext]) {
+    return mimeByExtension[ext];
+  }
   return "application/octet-stream";
 }
 
-async function resolveImageInputToUrl(imageInput) {
-  const value = String(imageInput || "").trim();
+function normalizeAttachmentExtension(filePath, mime = "") {
+  const fromPath = path.extname(String(filePath || "")).toLowerCase().replace(".", "");
+  if (/^[a-z0-9]{1,12}$/.test(fromPath)) {
+    return fromPath;
+  }
+  return attachmentExtFromMime(mime);
+}
+
+function dataUrlToBuffer(dataUrl) {
+  const match = String(dataUrl || "").match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) {
+    throw new Error("Unsupported data URL format.");
+  }
+  return {
+    mime: match[1],
+    bytes: Buffer.from(match[2], "base64"),
+  };
+}
+
+async function resolveAttachmentInput(attachmentInput, index, stamp) {
+  const value = String(attachmentInput || "").trim();
   if (!value) {
-    throw new Error("--image requires a non-empty value.");
+    throw new Error("--attachment requires a non-empty value.");
   }
 
-  if (looksLikeRemoteImage(value)) {
-    return value;
+  const outputPrefix = path.join(OUTPUT_DIR, `${stamp}-input-attachment-${index + 1}`);
+
+  if (value.startsWith("data:")) {
+    const decoded = dataUrlToBuffer(value);
+    const ext = normalizeAttachmentExtension("", decoded.mime);
+    const filename = `attachment-${index + 1}.${ext}`;
+    const savedPath = `${outputPrefix}.${ext}`;
+    await writeFile(savedPath, decoded.bytes);
+    return {
+      requestPart: buildAttachmentRequestPart(value, decoded.mime, filename),
+      savedPath,
+    };
+  }
+
+  if (/^https?:\/\//i.test(value)) {
+    const res = await fetch(value);
+    if (!res.ok) {
+      throw new Error(`Failed to download input attachment #${index + 1}: HTTP ${res.status}`);
+    }
+    const mime = String(res.headers.get("content-type") || "application/octet-stream").split(";")[0].trim();
+    const bytes = Buffer.from(await res.arrayBuffer());
+    const ext = normalizeAttachmentExtension(value, mime);
+    const filename = resolveAttachmentFilename(value, index, ext);
+    const savedPath = `${outputPrefix}.${ext}`;
+    const dataUrl = `data:${mime};base64,${bytes.toString("base64")}`;
+
+    await writeFile(savedPath, bytes);
+    return {
+      requestPart: buildAttachmentRequestPart(dataUrl, mime, filename),
+      savedPath,
+    };
   }
 
   const absolutePath = path.isAbsolute(value) ? value : path.resolve(process.cwd(), value);
   const bytes = await readFile(absolutePath);
   const mime = guessMimeFromPath(absolutePath);
-  return `data:${mime};base64,${bytes.toString("base64")}`;
+  const ext = normalizeAttachmentExtension(absolutePath, mime);
+  const filename = resolveAttachmentFilename(absolutePath, index, ext);
+  const savedPath = `${outputPrefix}.${ext}`;
+  const dataUrl = `data:${mime};base64,${bytes.toString("base64")}`;
+
+  await writeFile(savedPath, bytes);
+  return {
+    requestPart: buildAttachmentRequestPart(dataUrl, mime, filename),
+    savedPath,
+  };
 }
 
-async function resolveImageInputs(imageInputs) {
-  const urls = [];
-  for (const input of imageInputs) {
-    urls.push(await resolveImageInputToUrl(input));
+function resolveAttachmentFilename(rawInput, index, fallbackExt) {
+  const fallback = `attachment-${index + 1}.${fallbackExt}`;
+
+  if (!rawInput || String(rawInput).startsWith("data:")) {
+    return fallback;
   }
-  return urls;
+
+  try {
+    if (/^https?:\/\//i.test(rawInput)) {
+      const fromUrl = path.basename(new URL(rawInput).pathname);
+      if (fromUrl && fromUrl !== "/" && fromUrl !== ".") {
+        return path.extname(fromUrl) ? fromUrl : `${fromUrl}.${fallbackExt}`;
+      }
+      return fallback;
+    }
+  } catch {
+    // Ignore URL parse failures and fallback to basename/path logic.
+  }
+
+  const fromPath = path.basename(String(rawInput));
+  if (!fromPath) {
+    return fallback;
+  }
+  return path.extname(fromPath) ? fromPath : `${fromPath}.${fallbackExt}`;
 }
 
-function buildUserMessageContent(prompt, imageUrls) {
+function buildAttachmentRequestPart(dataUrl, mime, filename) {
+  const normalizedMime = String(mime || "application/octet-stream").toLowerCase();
+
+  if (normalizedMime.startsWith("image/")) {
+    return {
+      type: "image_url",
+      imageUrl: { url: dataUrl },
+    };
+  }
+
+  return {
+    type: "file",
+    file: {
+      filename,
+      mime_type: normalizedMime,
+      file_data: dataUrl,
+    },
+  };
+}
+
+async function resolveAttachmentInputs(attachmentInputs, stamp) {
+  const requestParts = [];
+  const savedPaths = [];
+
+  for (let i = 0; i < attachmentInputs.length; i += 1) {
+    const result = await resolveAttachmentInput(attachmentInputs[i], i, stamp);
+    requestParts.push(result.requestPart);
+    savedPaths.push(result.savedPath);
+  }
+
+  return { requestParts, savedPaths };
+}
+
+function buildUserMessageContent(prompt, attachmentParts) {
   const trimmedPrompt = String(prompt || "").trim();
 
-  if (imageUrls.length === 0) {
+  if (attachmentParts.length === 0) {
     return trimmedPrompt;
   }
 
@@ -338,11 +498,8 @@ function buildUserMessageContent(prompt, imageUrls) {
     content.push({ type: "text", text: trimmedPrompt });
   }
 
-  for (const url of imageUrls) {
-    content.push({
-      type: "image_url",
-      imageUrl: { url },
-    });
+  for (const part of attachmentParts) {
+    content.push(part);
   }
 
   return content;
@@ -411,35 +568,135 @@ function stampNow() {
   return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
-function imageExtFromMime(mime) {
-  const normalized = String(mime || "").toLowerCase();
-  if (normalized.includes("png")) return "png";
-  if (normalized.includes("jpeg") || normalized.includes("jpg")) return "jpg";
-  if (normalized.includes("webp")) return "webp";
-  if (normalized.includes("gif")) return "gif";
-  if (normalized.includes("bmp")) return "bmp";
-  if (normalized.includes("svg")) return "svg";
-  return "png";
+function attachmentExtFromMime(mime) {
+  const normalized = String(mime || "").toLowerCase().split(";")[0].trim();
+  const mimeToExt = {
+    "text/plain": "txt",
+    "text/markdown": "md",
+    "application/json": "json",
+    "text/csv": "csv",
+    "application/pdf": "pdf",
+    "application/zip": "zip",
+    "application/gzip": "gz",
+    "application/x-tar": "tar",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/vnd.ms-excel": "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/vnd.ms-powerpoint": "ppt",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/bmp": "bmp",
+    "image/svg+xml": "svg",
+    "audio/mpeg": "mp3",
+    "audio/wav": "wav",
+    "audio/ogg": "ogg",
+    "audio/flac": "flac",
+    "audio/mp4": "m4a",
+    "video/mp4": "mp4",
+    "video/quicktime": "mov",
+    "video/webm": "webm",
+    "video/x-msvideo": "avi",
+    "video/x-matroska": "mkv",
+  };
+  if (mimeToExt[normalized]) {
+    return mimeToExt[normalized];
+  }
+
+  if (normalized.startsWith("image/")) return normalized.split("/")[1].replace(/\+xml$/, "");
+  if (normalized.startsWith("audio/")) return normalized.split("/")[1];
+  if (normalized.startsWith("video/")) return normalized.split("/")[1];
+  if (normalized.startsWith("text/")) return "txt";
+  return "bin";
 }
 
-function imageExtFromUrl(rawUrl) {
+function attachmentExtFromUrl(rawUrl) {
   try {
     const ext = path.extname(new URL(rawUrl).pathname).toLowerCase().replace(".", "");
-    if (["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg"].includes(ext)) {
-      return ext === "jpeg" ? "jpg" : ext;
+    if (/^[a-z0-9]{1,12}$/.test(ext)) {
+      return ext;
     }
   } catch {
     // Ignore URL parsing errors.
   }
-  return "png";
+  return "bin";
 }
 
-function extractTextAndImages(response) {
+function pickFirstString(candidates) {
+  for (const value of candidates) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function normalizeAttachmentCandidate(raw, typeHint = "") {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const inferredMime =
+    String(typeHint || "").includes("image") ? "image/*" :
+    String(typeHint || "").includes("audio") ? "audio/*" :
+    String(typeHint || "").includes("video") ? "video/*" : "";
+
+  const mime = pickFirstString([
+    raw.mime,
+    raw.mimeType,
+    raw.mime_type,
+    raw.contentType,
+    raw.content_type,
+    inferredMime,
+  ]);
+
+  const name = pickFirstString([
+    raw.filename,
+    raw.fileName,
+    raw.name,
+    raw.title,
+  ]);
+
+  const directUrl = pickFirstString([raw.url, raw.uri, raw.href]);
+  let dataUrlOrBase64 = pickFirstString([
+    raw.dataUrl,
+    raw.data_url,
+    raw.fileData,
+    raw.file_data,
+    raw.base64,
+    raw.b64,
+  ]);
+
+  if (dataUrlOrBase64 && !dataUrlOrBase64.startsWith("data:")) {
+    const safeMime = mime || "application/octet-stream";
+    dataUrlOrBase64 = `data:${safeMime};base64,${dataUrlOrBase64}`;
+  }
+
+  const source = dataUrlOrBase64 || directUrl;
+  if (!source) {
+    return null;
+  }
+
+  return { source, mime, name };
+}
+
+function extractTextAndAttachments(response) {
   const choice = response?.choices?.[0] ?? {};
   const message = choice?.message ?? {};
 
   const textParts = [];
-  const imageUrls = [];
+  const attachmentMap = new Map();
+
+  function addAttachment(candidate, typeHint = "") {
+    const normalized = normalizeAttachmentCandidate(candidate, typeHint);
+    if (!normalized) {
+      return;
+    }
+    attachmentMap.set(normalized.source, normalized);
+  }
 
   if (typeof message.content === "string" && message.content.trim()) {
     textParts.push(message.content.trim());
@@ -456,34 +713,51 @@ function extractTextAndImages(response) {
       }
 
       if (item.type === "image_url") {
-        const url = item.imageUrl?.url || item.image_url?.url;
-        if (typeof url === "string" && url.trim()) {
-          imageUrls.push(url.trim());
-        }
+        addAttachment({
+          url: item.imageUrl?.url || item.image_url?.url,
+          mime: "image/*",
+        }, "image_url");
+        continue;
       }
+
+      addAttachment(item.file, item.type);
+      addAttachment(item.fileUrl, item.type);
+      addAttachment(item.file_url, item.type);
+      addAttachment(item.audio, item.type);
+      addAttachment(item.audioUrl, item.type);
+      addAttachment(item.audio_url, item.type);
+      addAttachment(item.video, item.type);
+      addAttachment(item.videoUrl, item.type);
+      addAttachment(item.video_url, item.type);
+      addAttachment(item.attachment, item.type);
+      addAttachment(item.attachmentUrl, item.type);
+      addAttachment(item.attachment_url, item.type);
+      addAttachment(item, item.type);
     }
   }
 
   if (Array.isArray(message.images)) {
     for (const image of message.images) {
-      const url = image?.imageUrl?.url || image?.image_url?.url;
-      if (typeof url === "string" && url.trim()) {
-        imageUrls.push(url.trim());
-      }
+      addAttachment({
+        url: image?.imageUrl?.url || image?.image_url?.url,
+        mime: "image/*",
+      }, "image");
+    }
+  }
+
+  if (Array.isArray(message.files)) {
+    for (const file of message.files) {
+      addAttachment(file, "file");
     }
   }
 
   return {
     text: textParts.join("\n\n").trim(),
-    imageUrls: [...new Set(imageUrls)],
+    attachments: Array.from(attachmentMap.values()),
   };
 }
 
 function printRouteMarker(routeInfo, agentProfile) {
-  if (agentProfile?.emitRouteMarker === false) {
-    return;
-  }
-
   const payload = {
     provider: routeInfo.provider,
     alias: routeInfo.alias,
@@ -495,30 +769,56 @@ function printRouteMarker(routeInfo, agentProfile) {
   console.log(`[ROUTE] ${JSON.stringify(payload)}`);
 }
 
-async function writeTextResult(modelId, alias, text, agentProfile) {
-  const filePath = path.join(OUTPUT_DIR, `${stampNow()}-response.md`);
+function formatAttachmentPathLines(paths) {
+  if (!Array.isArray(paths) || paths.length === 0) {
+    return ["- (none)"];
+  }
+  return paths.map((p) => `- \`${p}\``);
+}
+
+async function writeDialogueResult({
+  stamp,
+  modelId,
+  alias,
+  promptText,
+  answerText,
+  inputAttachmentPaths,
+  outputAttachmentPaths,
+  agentProfile,
+}) {
+  const filePath = path.join(OUTPUT_DIR, `${stamp}-dialogue.md`);
+  const safePrompt = String(promptText || "").trim() || "(attachment-only request)";
+  const safeAnswer = String(answerText || "").trim() || "(no text response)";
+
   const markdown = [
-    "# OpenRouter Response",
+    "# OpenRouter Dialogue",
     "",
     `- Alias: ${alias}`,
     `- Model: \`${modelId}\``,
     `- Time: ${new Date().toISOString()}`,
     `- Agent Profile: ${agentProfile.key}`,
     "",
-    "---",
+    "## Question",
     "",
-    text,
+    safePrompt,
+    "",
+    "## Input Attachments",
+    "",
+    ...formatAttachmentPathLines(inputAttachmentPaths),
+    "",
+    "## Answer",
+    "",
+    safeAnswer,
+    "",
+    "## Output Attachments",
+    "",
+    ...formatAttachmentPathLines(outputAttachmentPaths),
     "",
   ].join("\n");
 
   await writeFile(filePath, markdown, "utf8");
 
   console.log(`[TEXT_FILE] ${filePath}`);
-
-  if (agentProfile.inlineTextPreview === false) {
-    console.log(`[TEXT_PREVIEW_SKIPPED] agent=${agentProfile.key}`);
-    return filePath;
-  }
 
   const printed = await readFile(filePath, "utf8");
   console.log("[TEXT_CONTENT_BEGIN]");
@@ -528,44 +828,51 @@ async function writeTextResult(modelId, alias, text, agentProfile) {
   return filePath;
 }
 
-async function materializeImage(url, index) {
-  const stamp = stampNow();
+async function materializeAttachment(attachment, index, stamp) {
+  const source = String(attachment?.source || "").trim();
+  if (!source) {
+    throw new Error(`Attachment #${index + 1} has no source URL/data.`);
+  }
 
-  if (url.startsWith("data:")) {
-    const match = url.match(/^data:([^;]+);base64,(.+)$/);
+  if (source.startsWith("data:")) {
+    const match = source.match(/^data:([^;]+);base64,(.+)$/);
     if (!match) {
-      throw new Error(`Unsupported data URL format for image #${index + 1}`);
+      throw new Error(`Unsupported data URL format for attachment #${index + 1}`);
     }
 
     const mime = match[1];
     const data = match[2];
-    const ext = imageExtFromMime(mime);
-    const filePath = path.join(OUTPUT_DIR, `${stamp}-image-${index + 1}.${ext}`);
+    const ext = normalizeAttachmentExtension(attachment?.name || "", mime);
+    const filePath = path.join(OUTPUT_DIR, `${stamp}-attachment-${index + 1}.${ext}`);
 
     await writeFile(filePath, Buffer.from(data, "base64"));
     return filePath;
   }
 
-  const res = await fetch(url);
+  const res = await fetch(source);
   if (!res.ok) {
-    throw new Error(`Failed to download image #${index + 1}: HTTP ${res.status}`);
+    throw new Error(`Failed to download attachment #${index + 1}: HTTP ${res.status}`);
   }
 
-  const mime = res.headers.get("content-type") || "";
-  const ext = mime ? imageExtFromMime(mime) : imageExtFromUrl(url);
-  const filePath = path.join(OUTPUT_DIR, `${stamp}-image-${index + 1}.${ext}`);
+  const mimeHeader = String(res.headers.get("content-type") || "").split(";")[0].trim();
+  const ext = normalizeAttachmentExtension(
+    attachment?.name || source,
+    attachment?.mime || mimeHeader || attachmentExtFromUrl(source)
+  );
+  const filePath = path.join(OUTPUT_DIR, `${stamp}-attachment-${index + 1}.${ext}`);
   const bytes = Buffer.from(await res.arrayBuffer());
 
   await writeFile(filePath, bytes);
   return filePath;
 }
 
-async function writeImageResults(imageUrls) {
+async function writeAttachmentResults(attachments) {
   const paths = [];
-  for (let i = 0; i < imageUrls.length; i += 1) {
-    const filePath = await materializeImage(imageUrls[i], i);
+  const stamp = stampNow();
+  for (let i = 0; i < attachments.length; i += 1) {
+    const filePath = await materializeAttachment(attachments[i], i, stamp);
     paths.push(filePath);
-    console.log(`[IMAGE_FILE] ${filePath}`);
+    console.log(`[ATTACHMENT_FILE] ${filePath}`);
   }
   return paths;
 }
@@ -602,8 +909,8 @@ async function getPrompt(parsedArgs) {
     }
   }
 
-  // Allow image-only requests without prompting for text.
-  if (Array.isArray(parsedArgs.images) && parsedArgs.images.length > 0) {
+  // Allow attachment-only requests without prompting for text.
+  if (Array.isArray(parsedArgs.attachments) && parsedArgs.attachments.length > 0) {
     return "";
   }
 
@@ -705,9 +1012,10 @@ async function main() {
     agentProfile
   );
 
+  const dialogueStamp = stampNow();
   const prompt = await getPrompt(args);
-  const imageUrls = await resolveImageInputs(args.images);
-  const userContent = buildUserMessageContent(prompt, imageUrls);
+  const inputAttachments = await resolveAttachmentInputs(args.attachments, dialogueStamp);
+  const userContent = buildUserMessageContent(prompt, inputAttachments.requestParts);
 
   const { OpenRouter } = await import("@openrouter/sdk");
   const client = new OpenRouter({ apiKey: selectedProfile.apiKey });
@@ -724,22 +1032,30 @@ async function main() {
     },
   });
 
-  const parsed = extractTextAndImages(response);
+  const parsed = extractTextAndAttachments(response);
 
-  if (parsed.text) {
-    await writeTextResult(selectedProfile.modelId || DEFAULT_MODEL, selectedAlias.alias, parsed.text, agentProfile);
+  let outputAttachmentPaths = [];
+  if (parsed.attachments.length > 0) {
+    outputAttachmentPaths = await writeAttachmentResults(parsed.attachments);
   }
 
-  if (parsed.imageUrls.length > 0) {
-    await writeImageResults(parsed.imageUrls);
-  }
+  await writeDialogueResult({
+    stamp: dialogueStamp,
+    modelId: selectedProfile.modelId || DEFAULT_MODEL,
+    alias: selectedAlias.alias,
+    promptText: prompt,
+    answerText: parsed.text,
+    inputAttachmentPaths: inputAttachments.savedPaths,
+    outputAttachmentPaths,
+    agentProfile,
+  });
 
-  if (!parsed.text && parsed.imageUrls.length === 0) {
+  if (!parsed.text && parsed.attachments.length === 0) {
     const fallbackPath = path.join(OUTPUT_DIR, `${stampNow()}-raw-response.md`);
     const raw = [
       "# OpenRouter Raw Response",
       "",
-      "No text/image blocks were detected. Raw JSON is preserved below.",
+      "No text/attachment blocks were detected. Raw JSON is preserved below.",
       "",
       "```json",
       JSON.stringify(response, null, 2),
