@@ -1,0 +1,30 @@
+{
+  "default": "github-copilot",
+  "profiles": {
+    "github-copilot": {
+      "inlineTextPreview": true,
+      "emitRouteMarker": true,
+      "description": "Default profile for GitHub Copilot skill runtime."
+    },
+    "claude-code": {
+      "inlineTextPreview": false,
+      "emitRouteMarker": true,
+      "description": "Prefer file-first output to avoid terminal truncation in long responses."
+    },
+    "cursor": {
+      "inlineTextPreview": true,
+      "emitRouteMarker": true,
+      "description": "Interactive profile for Cursor agent/chat flows."
+    },
+    "codex-cli": {
+      "inlineTextPreview": true,
+      "emitRouteMarker": true,
+      "description": "CLI-friendly profile for Codex-like terminal agents."
+    },
+    "generic": {
+      "inlineTextPreview": true,
+      "emitRouteMarker": true,
+      "description": "Fallback profile for unknown agents."
+    }
+  }
+}

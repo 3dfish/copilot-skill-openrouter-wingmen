@@ -3,10 +3,48 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import readline from "node:readline/promises";
+import { fileURLToPath } from "node:url";
 
 const DEFAULT_MODEL = "openrouter/auto";
+const DEFAULT_TASK = "general";
+const DEFAULT_REGION = "auto";
+const DEFAULT_AGENT_PROFILE = "github-copilot";
+
 const OUTPUT_DIR = path.join(process.cwd(), "openrouter");
 const ENV_FILE = path.join(OUTPUT_DIR, ".env");
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const ROUTING_CONFIG_FILE = path.join(SCRIPT_DIR, "gateway-routing.json");
+const AGENT_PROFILES_FILE = path.join(SCRIPT_DIR, "agent-profiles.json");
+
+const FALLBACK_ROUTING_CONFIG = {
+  version: 1,
+  defaultProvider: "openrouter",
+  regions: {
+    global: {
+      blockedModelPatterns: [],
+      tasks: {
+        general: [DEFAULT_MODEL],
+      },
+    },
+  },
+};
+
+const FALLBACK_AGENT_CONFIG = {
+  default: DEFAULT_AGENT_PROFILE,
+  profiles: {
+    [DEFAULT_AGENT_PROFILE]: {
+      inlineTextPreview: true,
+      emitRouteMarker: true,
+      description: "Default profile for GitHub Copilot.",
+    },
+    generic: {
+      inlineTextPreview: true,
+      emitRouteMarker: true,
+      description: "Fallback profile for unknown agents.",
+    },
+  },
+};
 
 function parseArgs(argv) {
   const positional = [];
@@ -16,12 +54,18 @@ function parseArgs(argv) {
     model: "",
     apiKey: "",
     images: [],
+    task: "",
+    region: DEFAULT_REGION,
+    agentProfile: "",
+    allowBlockedModels: false,
+    listRoutes: false,
     saveEnv: false,
     help: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
+
     if (token === "--help" || token === "-h") {
       parsed.help = true;
       continue;
@@ -51,10 +95,34 @@ function parseArgs(argv) {
       i += 1;
       continue;
     }
+    if (token === "--task") {
+      parsed.task = argv[i + 1] ?? "";
+      i += 1;
+      continue;
+    }
+    if (token === "--region") {
+      parsed.region = argv[i + 1] ?? DEFAULT_REGION;
+      i += 1;
+      continue;
+    }
+    if (token === "--agent") {
+      parsed.agentProfile = argv[i + 1] ?? "";
+      i += 1;
+      continue;
+    }
+    if (token === "--allow-blocked-models") {
+      parsed.allowBlockedModels = true;
+      continue;
+    }
+    if (token === "--list-routes") {
+      parsed.listRoutes = true;
+      continue;
+    }
     if (token === "--save-env") {
       parsed.saveEnv = true;
       continue;
     }
+
     positional.push(token);
   }
 
@@ -67,10 +135,144 @@ function parseArgs(argv) {
 
 function printHelp() {
   console.log(
-    "Usage: node openrouter_capture.mjs [--prompt \"<message>\" | --prompt-file <file>] [--image <path-or-url>] [--model <model-id>] [--api-key <key>] [--save-env]"
+    "Usage: node openrouter_capture.mjs [--prompt \"<message>\" | --prompt-file <file>] [--image <path-or-url>] [--task <task>] [--region <global|cn-mainland|auto>] [--agent <profile>] [--model <model-id>] [--api-key <key>] [--allow-blocked-models] [--list-routes] [--save-env]"
   );
   console.log("Repeat --image to attach multiple images. If prompt is omitted and images are provided, image-only input is sent.");
   console.log("Use --prompt-file for long markdown/text input to avoid shell quoting issues.");
+}
+
+async function loadJsonConfig(filePath, fallbackValue) {
+  try {
+    const raw = await readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : fallbackValue;
+  } catch {
+    return fallbackValue;
+  }
+}
+
+function compilePatterns(rawPatterns) {
+  const patterns = [];
+  for (const p of rawPatterns || []) {
+    if (typeof p !== "string" || !p.trim()) {
+      continue;
+    }
+    try {
+      patterns.push(new RegExp(p, "i"));
+    } catch {
+      // Ignore malformed regex patterns.
+    }
+  }
+  return patterns;
+}
+
+function isModelBlocked(modelId, compiledPatterns) {
+  const target = String(modelId || "").trim();
+  if (!target) {
+    return false;
+  }
+  return compiledPatterns.some((rule) => rule.test(target));
+}
+
+function resolveRegion(regionArg) {
+  const normalizedArg = String(regionArg || "").trim();
+  if (normalizedArg && normalizedArg !== DEFAULT_REGION) {
+    return normalizedArg;
+  }
+
+  const envRegion =
+    (process.env.OPENCLAW_REGION || process.env.OPENROUTER_REGION || process.env.GATEWAY_REGION || "")
+      .trim()
+      .toLowerCase();
+
+  if (envRegion && envRegion !== DEFAULT_REGION) {
+    return envRegion;
+  }
+
+  return "global";
+}
+
+function resolveRoute({ args, envModelId, routingConfig }) {
+  const regions = routingConfig?.regions || {};
+  const resolvedRegion = resolveRegion(args.region);
+  const regionPolicy = regions[resolvedRegion] || regions.global || FALLBACK_ROUTING_CONFIG.regions.global;
+
+  const task = String(args.task || DEFAULT_TASK).trim().toLowerCase() || DEFAULT_TASK;
+  const taskCandidates =
+    regionPolicy?.tasks?.[task] || regionPolicy?.tasks?.[DEFAULT_TASK] || [DEFAULT_MODEL];
+
+  const blockedPatterns = compilePatterns(regionPolicy?.blockedModelPatterns || []);
+  const argModel = String(args.model || "").trim();
+  const envModel = String(envModelId || "").trim();
+
+  if (argModel) {
+    const blocked = isModelBlocked(argModel, blockedPatterns);
+    if (blocked && !args.allowBlockedModels) {
+      throw new Error(
+        `Model blocked by routing policy for region=${resolvedRegion}: ${argModel}. Use --allow-blocked-models to override explicitly.`
+      );
+    }
+
+    return {
+      provider: routingConfig?.defaultProvider || "openrouter",
+      region: resolvedRegion,
+      task,
+      modelId: argModel,
+      source: "arg",
+      blockedByPolicy: blocked,
+      usedFallback: false,
+    };
+  }
+
+  if (envModel && (!isModelBlocked(envModel, blockedPatterns) || args.allowBlockedModels)) {
+    return {
+      provider: routingConfig?.defaultProvider || "openrouter",
+      region: resolvedRegion,
+      task,
+      modelId: envModel,
+      source: "env",
+      blockedByPolicy: isModelBlocked(envModel, blockedPatterns),
+      usedFallback: false,
+    };
+  }
+
+  for (const candidate of taskCandidates) {
+    if (!candidate) {
+      continue;
+    }
+    if (!isModelBlocked(candidate, blockedPatterns)) {
+      return {
+        provider: routingConfig?.defaultProvider || "openrouter",
+        region: resolvedRegion,
+        task,
+        modelId: candidate,
+        source: "route",
+        blockedByPolicy: false,
+        usedFallback: candidate === DEFAULT_MODEL,
+      };
+    }
+  }
+
+  return {
+    provider: routingConfig?.defaultProvider || "openrouter",
+    region: resolvedRegion,
+    task,
+    modelId: DEFAULT_MODEL,
+    source: "default",
+    blockedByPolicy: false,
+    usedFallback: true,
+  };
+}
+
+function resolveAgentProfile(agentArg, agentConfig) {
+  const profiles = agentConfig?.profiles || {};
+  const requested = String(agentArg || "").trim() || agentConfig?.default || DEFAULT_AGENT_PROFILE;
+  const profile = profiles[requested] || profiles.generic || FALLBACK_AGENT_CONFIG.profiles.generic;
+
+  return {
+    key: profiles[requested] ? requested : "generic",
+    ...profile,
+  };
 }
 
 function looksLikeRemoteImage(input) {
@@ -181,11 +383,13 @@ function envQuote(value) {
     .replace(/\n/g, "\\n")}"`;
 }
 
-async function saveWorkspaceEnvFile(apiKey, modelId) {
+async function saveWorkspaceEnvFile(runtimeEnv) {
   const content = [
-    "# OpenRouter runtime variables for this workspace",
-    `OPENROUTER_API_KEY=${envQuote(apiKey)}`,
-    `OPENROUTER_MODEL_ID=${envQuote(modelId)}`,
+    "# OpenRouter/OpenClaw runtime variables for this workspace",
+    `OPENROUTER_API_KEY=${envQuote(runtimeEnv.apiKey)}`,
+    `OPENROUTER_MODEL_ID=${envQuote(runtimeEnv.modelId)}`,
+    `OPENROUTER_REGION=${envQuote(runtimeEnv.region)}`,
+    `OPENCLAW_AGENT_PROFILE=${envQuote(runtimeEnv.agentProfile)}`,
     "",
   ].join("\n");
 
@@ -264,13 +468,34 @@ function extractTextAndImages(response) {
   };
 }
 
-async function writeTextResult(modelId, text) {
+function printRouteMarker(routeInfo, agentProfile) {
+  if (agentProfile?.emitRouteMarker === false) {
+    return;
+  }
+
+  const payload = {
+    provider: routeInfo.provider,
+    region: routeInfo.region,
+    task: routeInfo.task,
+    model: routeInfo.modelId,
+    source: routeInfo.source,
+    fallback: routeInfo.usedFallback,
+    agent: agentProfile.key,
+  };
+
+  console.log(`[ROUTE] ${JSON.stringify(payload)}`);
+}
+
+async function writeTextResult(modelId, text, routeInfo, agentProfile) {
   const filePath = path.join(OUTPUT_DIR, `${stampNow()}-response.md`);
   const markdown = [
     "# OpenRouter Response",
     "",
     `- Model: \`${modelId}\``,
     `- Time: ${new Date().toISOString()}`,
+    `- Region: ${routeInfo.region}`,
+    `- Task: ${routeInfo.task}`,
+    `- Agent Profile: ${agentProfile.key}`,
     "",
     "---",
     "",
@@ -279,9 +504,15 @@ async function writeTextResult(modelId, text) {
   ].join("\n");
 
   await writeFile(filePath, markdown, "utf8");
-  const printed = await readFile(filePath, "utf8");
 
   console.log(`[TEXT_FILE] ${filePath}`);
+
+  if (agentProfile.inlineTextPreview === false) {
+    console.log(`[TEXT_PREVIEW_SKIPPED] agent=${agentProfile.key}`);
+    return filePath;
+  }
+
+  const printed = await readFile(filePath, "utf8");
   console.log("[TEXT_CONTENT_BEGIN]");
   console.log(printed);
   console.log("[TEXT_CONTENT_END]");
@@ -385,8 +616,9 @@ async function ensureRuntimeEnv(parsedArgs) {
 
   const envApiKey = (process.env.OPENROUTER_API_KEY || "").trim();
   const envModelId = (process.env.OPENROUTER_MODEL_ID || "").trim();
+  const envRegion = (process.env.OPENROUTER_REGION || "").trim();
+  const envAgentProfile = (process.env.OPENCLAW_AGENT_PROFILE || "").trim();
   const argApiKey = (parsedArgs.apiKey || "").trim();
-  const argModelId = (parsedArgs.model || "").trim();
 
   const apiKey = argApiKey || envApiKey;
   if (!apiKey) {
@@ -395,23 +627,14 @@ async function ensureRuntimeEnv(parsedArgs) {
     );
   }
 
-  const modelId = argModelId || envModelId || DEFAULT_MODEL;
-
-  const needsSave =
-    parsedArgs.saveEnv ||
-    Boolean(argApiKey) ||
-    Boolean(argModelId) ||
-    !envApiKey ||
-    !envModelId;
-
-  process.env.OPENROUTER_API_KEY = apiKey;
-  process.env.OPENROUTER_MODEL_ID = modelId;
-
-  if (needsSave) {
-    await saveWorkspaceEnvFile(apiKey, modelId);
-  }
-
-  return { apiKey, modelId };
+  return {
+    apiKey,
+    argApiKey,
+    envApiKey,
+    envModelId,
+    envRegion,
+    envAgentProfile,
+  };
 }
 
 async function main() {
@@ -421,17 +644,55 @@ async function main() {
     return;
   }
 
-  const { apiKey, modelId } = await ensureRuntimeEnv(args);
+  const routingConfig = await loadJsonConfig(ROUTING_CONFIG_FILE, FALLBACK_ROUTING_CONFIG);
+  const agentConfig = await loadJsonConfig(AGENT_PROFILES_FILE, FALLBACK_AGENT_CONFIG);
+
+  if (args.listRoutes) {
+    console.log(JSON.stringify(routingConfig, null, 2));
+    return;
+  }
+
+  const runtime = await ensureRuntimeEnv(args);
+  const routeInfo = resolveRoute({
+    args,
+    envModelId: runtime.envModelId,
+    routingConfig,
+  });
+  const agentProfile = resolveAgentProfile(args.agentProfile, agentConfig);
+
+  const shouldSaveEnv =
+    args.saveEnv ||
+    !runtime.envApiKey ||
+    !runtime.envModelId ||
+    !runtime.envRegion ||
+    !runtime.envAgentProfile;
+
+  process.env.OPENROUTER_API_KEY = runtime.apiKey;
+  process.env.OPENROUTER_MODEL_ID = routeInfo.modelId;
+  process.env.OPENROUTER_REGION = routeInfo.region;
+  process.env.OPENCLAW_AGENT_PROFILE = agentProfile.key;
+
+  if (shouldSaveEnv) {
+    await saveWorkspaceEnvFile({
+      apiKey: runtime.apiKey,
+      modelId: routeInfo.modelId,
+      region: routeInfo.region,
+      agentProfile: agentProfile.key,
+    });
+  }
+
+  printRouteMarker(routeInfo, agentProfile);
+
   const prompt = await getPrompt(args);
   const imageUrls = await resolveImageInputs(args.images);
   const userContent = buildUserMessageContent(prompt, imageUrls);
 
   const { OpenRouter } = await import("@openrouter/sdk");
-  const client = new OpenRouter({ apiKey });
+  const client = new OpenRouter({ apiKey: runtime.apiKey });
 
   const response = await client.chat.send({
     chatGenerationParams: {
-      model: modelId || DEFAULT_MODEL,
+      model: routeInfo.modelId || DEFAULT_MODEL,
       messages: [
         {
           role: "user",
@@ -444,7 +705,7 @@ async function main() {
   const parsed = extractTextAndImages(response);
 
   if (parsed.text) {
-    await writeTextResult(modelId || DEFAULT_MODEL, parsed.text);
+    await writeTextResult(routeInfo.modelId || DEFAULT_MODEL, parsed.text, routeInfo, agentProfile);
   }
 
   if (parsed.imageUrls.length > 0) {

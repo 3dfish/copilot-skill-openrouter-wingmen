@@ -5,6 +5,8 @@
 它提供了：
 - 面向 CLI 与 VS Code Chat 的统一调用约定
 - 可复用的 OpenRouter/Gateway 调用脚本
+- 区域感知路由（包含中国大陆可用性约束）
+- 多 Agent 适配输出（GitHub Copilot、Claude Code、Cursor、Codex CLI）
 - 传话模式（Relay）协议
 - 安全约束（密钥管理、输出读取授权）
 - 回归检查清单
@@ -35,9 +37,12 @@
 |-- SKILL.md
 |-- README.md
 |-- references/
+|   |-- agent-compatibility.md
 |   |-- protocol.md
 |   `-- regression-checklist.md
 `-- scripts/
+  |-- agent-profiles.json
+  |-- gateway-routing.json
     |-- openrouter_capture.mjs
     |-- package.json
     `-- package-lock.json
@@ -69,6 +74,8 @@ export OPENROUTER_MODEL_ID="openrouter/auto"
 ```bash
 node ./scripts/openrouter_capture.mjs \
   --prompt "用三句话总结这个仓库" \
+  --task rewrite \
+  --region global \
   --model "openrouter/auto" \
   --save-env
 ```
@@ -78,6 +85,8 @@ node ./scripts/openrouter_capture.mjs \
 ```bash
 node ./scripts/openrouter_capture.mjs \
   --prompt-file ./tmp/prompt.txt \
+  --task analysis \
+  --agent claude-code \
   --model "openrouter/auto" \
   --save-env
 ```
@@ -87,6 +96,8 @@ node ./scripts/openrouter_capture.mjs \
 ```bash
 node ./scripts/openrouter_capture.mjs \
   --prompt "分析这两张图的共同视觉元素" \
+  --task vision \
+  --region cn-mainland \
   --image ./assets/a.png \
   --image https://example.com/b.jpg \
   --model "openrouter/auto"
@@ -104,9 +115,14 @@ node ./scripts/openrouter_capture.mjs \
 - `--prompt <text>`: 直接传入提示词
 - `--prompt-file <path>`: 从文件读取多行提示词
 - `--image <path-or-url>`: 传入图片，支持本地路径/URL，可重复
+- `--task <task>`: 指定任务类型（`general/coding/rewrite/analysis/vision`）
+- `--region <region>`: 路由区域（`global/cn-mainland/auto`）
+- `--agent <profile>`: 输出 profile（`github-copilot/claude-code/cursor/codex-cli/generic`）
 - `--model <model-id>`: 指定模型
 - `--api-key <key>`: 直接传 key（支持但不推荐）
-- `--save-env`: 将当前 key/model 写入 `openrouter/.env`
+- `--allow-blocked-models`: 强制绕过区域模型限制（不推荐）
+- `--list-routes`: 输出当前路由配置并退出
+- `--save-env`: 将当前 key/model/region/agent 写入 `openrouter/.env`
 - `--help`: 查看帮助
 
 查看帮助：
@@ -126,10 +142,15 @@ node ./scripts/openrouter_capture.mjs --help
 
 终端会打印结构化标记：
 
+- `[ROUTE] <json>`
 - `[TEXT_FILE] <path>`
 - `[TEXT_CONTENT_BEGIN] ... [TEXT_CONTENT_END]`
 - `[IMAGE_FILE] <path>`
 - `[RAW_FILE] <path>`
+
+某些 Agent profile（例如 `claude-code`）会关闭内联长文本预览，并输出：
+
+- `[TEXT_PREVIEW_SKIPPED] agent=<profile>`
 
 建议把终端正文当作预览，完整内容以 `[TEXT_FILE]` 对应文件为准。
 
@@ -147,6 +168,27 @@ node ./scripts/openrouter_capture.mjs --help
 - 不在聊天或终端中泄露 API Key
 - 不通过命令行参数暴露密钥（优先环境变量或 `openrouter/.env`）
 - 大于 50KB 的输出文件，读取前必须先征得用户授权
+
+## 区域路由约束（中国大陆）
+
+当 `--region cn-mainland`（或环境变量推导到该区域）时，路由会默认屏蔽以下模型族：
+
+- ChatGPT / GPT / OpenAI
+- Claude / Anthropic
+- Gemini / Google Gemini
+
+这用于避免在大陆网络环境中路由到不可用模型。若你明确要强制使用，可手动加 `--allow-blocked-models`。
+
+## 多 Agent 适配
+
+脚本已支持以下主流 agent 运行时：
+
+- GitHub Copilot
+- Claude Code
+- Cursor
+- Codex CLI
+
+详见 `references/agent-compatibility.md`。
 
 ## 回归检查
 
@@ -170,5 +212,6 @@ node ./scripts/openrouter_capture.mjs --help
 ## 参考
 
 - 技能定义：`SKILL.md`
+- Agent 兼容：`references/agent-compatibility.md`
 - Relay 协议：`references/protocol.md`
 - 回归清单：`references/regression-checklist.md`

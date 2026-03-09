@@ -55,3 +55,17 @@ Use this checklist after changing relay behavior, command parsing, output render
 
 - [ ] `[TEXT_FILE]` is always printed when text exists.
 - [ ] Saved markdown file preserves complete assistant text for downstream reads.
+
+## Routing Policy
+
+- [ ] `--task` selects expected routing candidate model.
+- [ ] `--region cn-mainland` blocks GPT/Claude/Gemini model families.
+- [ ] Blocked explicit model raises clear error unless `--allow-blocked-models` is set.
+- [ ] Blocked env model under `cn-mainland` falls back to task route candidate.
+- [ ] `[ROUTE]` marker prints provider/region/task/model/source metadata.
+
+## Agent Profile Compatibility
+
+- [ ] `--agent github-copilot` keeps inline preview behavior.
+- [ ] `--agent claude-code` emits `[TEXT_PREVIEW_SKIPPED]` and still writes `[TEXT_FILE]`.
+- [ ] Unknown `--agent` gracefully falls back to `generic` profile.

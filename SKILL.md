@@ -1,7 +1,7 @@
 ---
 name: openrouter-wingmen
-description: "Use this skill whenever the user wants to talk to OpenRouter models through you, either as a relay (you pass messages back and forth) or as a wingman tool model (you ask OpenRouter first, then ask user consent before deeper internal use). Trigger on requests like '和 openrouter 聊聊', '帮我问问 openrouter', '你当传话员', '外援模型', '代问模型', and similar wording."
-argument-hint: "Mode A or B, and the first message/model"
+description: "Use this skill whenever the user wants to talk to OpenRouter models through you, either as a relay (you pass messages back and forth) or as a wingman tool model (you ask OpenRouter first, then ask user consent before deeper internal use). Trigger on requests like '和 openrouter 聊聊', '帮我问问 openrouter', '你当传话员', '外援模型', '代问模型', and similar wording. This skill also supports OpenClaw Gateway-style routing and multiple agent output profiles."
+argument-hint: "Mode A or B, first message/model, optional region/task/agent profile"
 ---
 
 # OpenRouter Wingmen
@@ -50,6 +50,21 @@ Examples:
 - Mode A: ask model id each call.
 - Mode B: initialize model in first popup; later turns reuse `last_model_id` unless assistant-side instructions request a switch.
 - Fallback order: explicit value -> `last_model_id` -> `openrouter/auto`.
+
+## Routing Policy (Mandatory)
+
+- The script supports `--task` (`general/coding/rewrite/analysis/vision`) and `--region` (`global/cn-mainland/auto`).
+- For `cn-mainland`, routing policy blocks model families likely unavailable in mainland networks:
+  - ChatGPT/GPT/OpenAI
+  - Claude/Anthropic
+  - Gemini/Google Gemini
+- Do not bypass blocked model policies unless the user explicitly requests override (`--allow-blocked-models`).
+
+## Multi-Agent Compatibility
+
+- The script supports `--agent` profiles to adapt output behavior for different runtimes.
+- Supported profiles: `github-copilot`, `claude-code`, `cursor`, `codex-cli`, `generic`.
+- For long outputs and `claude-code`, prefer file-first handling (`[TEXT_FILE]`) instead of inline previews.
 
 ## Output Contract
 
@@ -104,7 +119,10 @@ Consent prompt example:
 - Script: `./scripts/openrouter_capture.mjs`
 - Package: `./scripts/package.json`
 - Dependency: `@openrouter/sdk`
+- Routing config: `./scripts/gateway-routing.json`
+- Agent profile config: `./scripts/agent-profiles.json`
 - Relay protocol spec: `./references/protocol.md`
+- Agent compatibility reference: `./references/agent-compatibility.md`
 - Regression checklist: `./references/regression-checklist.md`
 
 When changing Mode B behavior, read `./references/protocol.md` first.
@@ -123,6 +141,9 @@ Call template:
 ```bash
 node <skill-dir>/scripts/openrouter_capture.mjs \
   --prompt "<user-prompt>" \
+  --task <task-name> \
+  --region <region-name> \
+  --agent <agent-profile> \
   --model "<resolved_model_id>" \
   --save-env
 ```
@@ -132,6 +153,9 @@ Long prompt template (recommended for multi-line docs/specs):
 ```bash
 node <skill-dir>/scripts/openrouter_capture.mjs \
   --prompt-file <path-to-prompt.txt> \
+  --task <task-name> \
+  --region <region-name> \
+  --agent <agent-profile> \
   --model "<resolved_model_id>" \
   --save-env
 ```
@@ -142,6 +166,9 @@ With image input (repeatable):
 node <skill-dir>/scripts/openrouter_capture.mjs \
   --prompt "<user-prompt>" \
   --image <path-or-url> \
+  --task vision \
+  --region <region-name> \
+  --agent <agent-profile> \
   --model "<resolved_model_id>" \
   --save-env
 ```
@@ -151,6 +178,7 @@ node <skill-dir>/scripts/openrouter_capture.mjs \
 - For long prompts, prefer `--prompt-file` over shell heredoc/complex quoting.
 - Treat terminal-rendered body as preview only; use `[TEXT_FILE]` path as source of truth for full output.
 - If output seems cut off, inspect the saved file first, then request continuation in a follow-up call.
+- Check `[ROUTE]` marker for final provider/region/model decisions when debugging routing issues.
 
 ## Completion Checks
 
