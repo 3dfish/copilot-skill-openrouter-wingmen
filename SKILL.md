@@ -31,14 +31,14 @@ Execution flow:
 - Use 4-step interactive profile input: `apikey -> modelid -> alias -> note(optional)`.
 - For `note(optional)`, accept `skip` / `跳过` / `-` as empty note when chat UI cannot send blank messages.
 - At least one profile entry must exist.
-- Store profiles in `.env` as `OPENROUTER_PROFILE_SET`.
+- Store profiles in `.3rd.env` as `OPENROUTER_PROFILE_SET`.
 - Use `OPENROUTER_DEFAULT_ALIAS` as fallback alias.
 - Legacy `alias:key:model` text format is not supported.
-- On first non-interactive run (when `<skill-dir>/.env` does not exist), require explicit `--alias`; do not silently fall back to `default`.
+- On first non-interactive run (when `<cwd>/.3rd.env` does not exist), require explicit `--alias`; do not silently fall back to `default`.
 
 If no profile set exists and the script is interactive, prompt user to enter profile entries.
 
-When an agent needs to create `.env` directly, use this exact template:
+When an agent needs to create `.3rd.env` directly, use this exact template:
 
 ```env
 OPENROUTER_DEFAULT_ALIAS=default
@@ -55,17 +55,17 @@ OPENCLAW_AGENT_PROFILE=github-copilot
 
 ## Output Contract
 
-- Save outputs under `<cwd>/openrouter/`.
+- Save outputs directly under `<cwd>/`.
 - Dialogue outputs: `*-dialogue.md` (question + answer; attachment sections record paths only)
 - Attachment outputs: `*-attachment-<n>.<ext>` files
-- Credentials file: `<skill-dir>/.env`
+- Credentials file: `<cwd>/.3rd.env`
 - Always print OpenRouter reply immediately in chat.
 
 ## Security Rules (Mandatory)
 
 - Never print API keys in chat or terminal logs.
 - Prefer interactive/env-based profile setup over command-line key arguments.
-- If credentials are missing, collect in chat and persist to `.env` with restrictive permissions.
+- If credentials are missing, collect in chat and persist to `.3rd.env` with restrictive permissions.
 
 ## Large File Authorization (Mandatory)
 
@@ -80,6 +80,7 @@ Before reading saved OpenRouter output files (`.md` or attachments):
 - Package: `./scripts/package.json`
 - Dependency: `@openrouter/sdk`
 - Dependency: `dotenv`
+- Credential template: `./.3rd.env.template`
 - Agent profile config: `./scripts/agent-profiles.json`
 - Channel protocol spec: `./references/protocol.md`
 - Agent compatibility reference: `./references/agent-compatibility.md`

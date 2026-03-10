@@ -39,7 +39,7 @@ Use this checklist after changing relay behavior, command parsing, output render
 
 - [ ] API key never appears in chat logs.
 - [ ] Script can run without passing key in command arguments when profile set exists.
-- [ ] `.env` stores profile set and default alias, not single key/model pair.
+- [ ] `.3rd.env` stores profile set and default alias, not single key/model pair.
 
 ## Large File Authorization
 

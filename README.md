@@ -24,7 +24,7 @@
 
 ```text
 .
-|-- .env.template
+|-- .3rd.env.template
 |-- SKILL.md
 |-- README.md
 |-- references/
@@ -52,7 +52,7 @@ npm install --prefix ./scripts
 
 ## 首次初始化（交互录入 profile）
 
-首次运行且 `.env` 不存在 profile 集合时，脚本会要求输入：
+首次运行且当前工作目录的 `.3rd.env` 不存在 profile 集合时，脚本会要求输入：
 
 - API key（必填）
 - Model id（必填）
@@ -105,12 +105,12 @@ node ./scripts/openrouter_capture.mjs --list-aliases
 - `--agent <profile>`: 输出 profile（`github-copilot/claude-code/cursor/codex-cli/generic`）
 - `--list-aliases`: 列出当前 profile 别名与绑定模型
 - `--check-agent-consistency`: 校验各 agent profile 是否保持统一交互契约（`inlineTextPreview=true`、`emitRouteMarker=true`）
-- `--save-env`: 将当前 profile 集、默认别名、agent 配置写入 `.env`
+- `--save-env`: 将当前 profile 集、默认别名、agent 配置写入 `.3rd.env`
 - `--help`: 查看帮助
 
 首次非交互运行注意：
 
-- 如果技能根目录 `.env` 尚不存在，且在非交互环境中执行，必须显式传入 `--alias`，否则脚本会报错。
+- 如果当前工作目录 `.3rd.env` 尚不存在，且在非交互环境中执行，必须显式传入 `--alias`，否则脚本会报错。
 - 这样可以避免首次执行被静默回退为 `default`。
 
 一致性校验示例：
@@ -121,7 +121,7 @@ node ./scripts/openrouter_capture.mjs --check-agent-consistency
 
 ## 凭据存储格式
 
-脚本把 profile 集合写入 `.env`：
+脚本把 profile 集合写入当前工作目录的 `.3rd.env`：
 
 - `OPENROUTER_PROFILE_SET=[{"alias":"default","apiKey":"***","modelId":"openrouter/auto","note":""}]`
 - `OPENROUTER_DEFAULT_ALIAS="alias1"`
@@ -131,7 +131,7 @@ node ./scripts/openrouter_capture.mjs --check-agent-consistency
 
 - `OPENROUTER_PROFILE_SET` 按原始 JSON 保存（不额外包裹 JSON 字符串转义层），避免在不同 agent/runtime 间反复读写时出现逐层反斜杠转义累积。
 
-推荐模板（可直接用于 `.env`）：
+推荐模板（可直接用于 `.3rd.env`，模板文件为仓库根目录 `.3rd.env.template`）：
 
 ```env
 OPENROUTER_DEFAULT_ALIAS=default
@@ -146,13 +146,13 @@ OPENCLAW_AGENT_PROFILE=github-copilot
 
 ## 输出约定
 
-脚本会在当前工作目录（`cwd`）下创建 `openrouter/` 并输出：
+脚本会在当前工作目录（`cwd`）直接输出：
 
 - 对话记录：`*-dialogue.md`（记录每次提问与回答）
 - 输入附件：`*-input-attachment-<n>.<ext>`
 - 输出附件：`*-attachment-<n>.<ext>`
 - 原始兜底：`*-raw-response.md`
-- 运行环境：技能根目录 `.env`
+- 运行环境：当前工作目录 `.3rd.env`
 
 说明：
 

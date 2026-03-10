@@ -16,10 +16,9 @@ const AGENT_PROFILE_ENV_KEY = "OPENCLAW_AGENT_PROFILE";
 const SUPPORTED_AGENT_KEYS = ["github-copilot", "claude-code", "cursor", "codex-cli", "generic"];
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const WORKSPACE_DIR = path.resolve(SCRIPT_DIR, "..");
-const OUTPUT_DIR = path.join(process.cwd(), "openrouter");
-const ENV_DIR = WORKSPACE_DIR; // .env and .env.template location
-const ENV_FILE = path.join(ENV_DIR, ".env");
+const WORKING_DIR = process.cwd();
+const OUTPUT_DIR = WORKING_DIR;
+const ENV_FILE = path.join(WORKING_DIR, ".3rd.env");
 const AGENT_PROFILES_FILE = path.join(SCRIPT_DIR, "agent-profiles.json");
 
 const FALLBACK_AGENT_CONFIG = {
@@ -645,14 +644,14 @@ async function loadWorkspaceEnvFile() {
     }
     return true;
   } catch {
-    // .env does not exist yet.
+    // .3rd.env does not exist yet.
     return false;
   }
 }
 
 async function saveWorkspaceEnvFile(runtimeEnv) {
   const content = [
-    "# OpenRouter/OpenClaw runtime variables for this workspace",
+    "# OpenRouter/OpenClaw runtime variables for current working directory",
     `${PROFILE_SET_ENV_KEY}=${runtimeEnv.profileSetRaw}`,
     `${DEFAULT_ALIAS_ENV_KEY}=${runtimeEnv.defaultAlias}`,
     `${AGENT_PROFILE_ENV_KEY}=${runtimeEnv.agentProfile}`,
@@ -1080,7 +1079,7 @@ async function main() {
   // In non-interactive first-time runs, force explicit alias to avoid silently falling back to "default".
   if (!runtime.envFileExists && !process.stdin.isTTY && !args.alias) {
     throw new Error(
-      "First-time non-interactive run requires --alias. Provide an explicit alias (or run interactively to configure profiles)."
+      "First-time non-interactive run requires --alias when .3rd.env is missing. Provide an explicit alias (or run interactively to configure profiles)."
     );
   }
 
