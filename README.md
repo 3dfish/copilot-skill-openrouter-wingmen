@@ -206,3 +206,7 @@ OPENCLAW_AGENT_PROFILE=github-copilot
 - Agent 兼容：`references/agent-compatibility.md`
 - 双通道协议：`references/protocol.md`
 - 回归清单：`references/regression-checklist.md`
+
+## 许可证
+
+本项目采用 GNU GPL-3.0-or-later License，详见 `LICENSE`。
