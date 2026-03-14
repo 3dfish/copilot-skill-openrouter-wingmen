@@ -182,7 +182,7 @@ OPENCLAW_AGENT_PROFILE=github-copilot
 - `[ATTACHMENT_FILE] <path>`
 - `[RAW_FILE] <path>`
 
-## 多 Agent 适配
+## 多Agent 适配
 
 当前支持：
 
