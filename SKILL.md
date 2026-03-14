@@ -18,16 +18,14 @@ This skill packages a repeatable OpenAI-compatible model conversation workflow.
 - `note` is optional and may be left empty; accept `skip` / `跳过` / `-` as empty note when chat UI cannot send blank messages.
 - At least one profile entry must exist.
 - Store profiles in `.3rd.env` as `WING_MODELS_PROFILE_SET`.
-- Use `WING_MODELS_DEFAULT_ALIAS` as fallback alias.
 - Legacy `alias:key:model` text format is not supported.
-- On first non-interactive run (when `<cwd>/.3rd.env` does not exist), require explicit `--alias`; do not silently fall back to `default`.
+- `--alias` is mandatory; script will error if alias is not provided.
 
 If no profile set exists and the script is interactive, prompt user to enter profile entries.
 
 When an agent needs to create `.3rd.env` directly after collecting fields in chat, use this structure:
 
 ```env
-WING_MODELS_DEFAULT_ALIAS=<default-alias-from-chat>
 WING_MODELS_PROFILE_SET=[{"alias":"<alias-from-chat>","baseURL":"https://openrouter.ai/api/v1","apiKey":"<api-key-from-chat>","modelId":"<model-id-from-chat>","note":""}]
 ```
 
@@ -46,7 +44,7 @@ This skill works with any OpenAI-compatible API, including:
 - Save outputs directly under `<cwd>/`.
 - Dialogue outputs: `*-dialogue.md` (question + answer; attachment sections record paths only)
 - Attachment outputs: `*-attachment-<n>.<ext>` files
-- Credentials file: `<cwd>/.3rd.env`
+- Credentials file: `<skill-dir>/.3rd.env`
 - Always print model reply immediately in chat.
 
 ## Security Rules (Mandatory)
@@ -155,7 +153,7 @@ node <skill-dir>/scripts/wing_models.mjs \
 ## Completion Checks
 
 - **Runtime readiness verified**: Node.js and npm are available, dependencies are installed.
-- Alias selected correctly (arg or default).
+- Alias selected correctly (arg or first available).
 - Model reply printed immediately.
 - No API key exposed in logs.
 - Large-file consent requested when needed.

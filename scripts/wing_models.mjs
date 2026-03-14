@@ -16,13 +16,13 @@ const DEFAULT_MODEL = "gpt-4o";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
 const PROFILE_SET_ENV_KEY = "WING_MODELS_PROFILE_SET";
-const DEFAULT_ALIAS_ENV_KEY = "WING_MODELS_DEFAULT_ALIAS";
 const ALIAS_PATTERN = /^[\p{L}\p{N}._-]+$/u;
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SKILL_ROOT = path.dirname(SCRIPT_DIR);
 const WORKING_DIR = process.cwd();
 const OUTPUT_DIR = WORKING_DIR;
-const ENV_FILE = path.join(WORKING_DIR, ".3rd.env");
+const ENV_FILE = path.join(SKILL_ROOT, ".3rd.env");
 
 function parseArgs(argv) {
   const positional = [];
@@ -31,7 +31,6 @@ function parseArgs(argv) {
     promptFile: "",
     attachments: [],
     alias: "",
-    defaultAlias: "",
     listAliases: false,
     saveEnv: false,
     help: false,
@@ -64,11 +63,6 @@ function parseArgs(argv) {
       i += 1;
       continue;
     }
-    if (token === "--default-alias") {
-      parsed.defaultAlias = argv[i + 1] ?? "";
-      i += 1;
-      continue;
-    }
     if (token === "--list-aliases") {
       parsed.listAliases = true;
       continue;
@@ -90,7 +84,7 @@ function parseArgs(argv) {
 
 function printHelp() {
   console.log(
-    "Usage: node wing_models.mjs [--prompt \"<message>\" | --prompt-file <file>] [--attachment <path-or-url>] [--alias <alias>] [--default-alias <alias>] [--list-aliases] [--save-env]"
+    "Usage: node wing_models.mjs [--prompt \"<message>\" | --prompt-file <file>] [--attachment <path-or-url>] [--alias <alias>] [--list-aliases] [--save-env]"
   );
   console.log("Repeat --attachment to attach multiple files. If prompt is omitted and attachments are provided, attachment-only input is sent.");
   console.log("`--image` remains available as a deprecated alias of `--attachment`.");
@@ -272,25 +266,13 @@ async function promptProfileSetFromUser() {
       }
     }
 
-    const aliases = Array.from(profileMap.keys());
-    const fallbackDefault = aliases[0];
-
-    while (true) {
-      const rawDefault = (await rl.question(`Default alias [${fallbackDefault}]: `)).trim();
-      const selectedDefault = rawDefault || fallbackDefault;
-
-      if (profileMap.has(selectedDefault)) {
-        return { profileMap, defaultAlias: selectedDefault };
-      }
-
-      console.log(`Unknown alias: ${selectedDefault}. Available aliases: ${aliases.join(", ")}`);
-    }
+    return profileMap;
   } finally {
     rl.close();
   }
 }
 
-async function resolveSelectedAlias(argsAlias, defaultAlias, profileMap) {
+async function resolveSelectedAlias(argsAlias, profileMap) {
   const aliases = Array.from(profileMap.keys());
   if (aliases.length === 0) {
     throw new Error("No profiles available. Provide at least one profile entry.");
@@ -304,26 +286,12 @@ async function resolveSelectedAlias(argsAlias, defaultAlias, profileMap) {
     return { alias: normalized, source: "arg" };
   }
 
-  const fallbackDefault = defaultAlias && profileMap.has(defaultAlias) ? defaultAlias : aliases[0];
-
-  if (process.stdin.isTTY) {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    try {
-      const answer = (await rl.question(`Alias to use [${aliases.join("/")}] (default: ${fallbackDefault}): `)).trim();
-      const selected = answer || fallbackDefault;
-      if (!profileMap.has(selected)) {
-        throw new Error(`Unknown alias: ${selected}. Available aliases: ${aliases.join(", ")}`);
-      }
-      return { alias: selected, source: answer ? "prompt" : "default" };
-    } finally {
-      rl.close();
-    }
-  }
-
-  return { alias: fallbackDefault, source: "default" };
+  throw new Error(
+    `--alias is required. Available aliases: ${aliases.join(", ")}`
+  );
 }
 
-function listAliases(profileMap, defaultAlias) {
+function listAliases(profileMap) {
   const aliases = Array.from(profileMap.keys());
   if (aliases.length === 0) {
     console.log("No aliases configured.");
@@ -333,10 +301,9 @@ function listAliases(profileMap, defaultAlias) {
   console.log("Configured aliases:");
   for (const alias of aliases) {
     const profile = profileMap.get(alias);
-    const isDefault = alias === defaultAlias ? " (default)" : "";
     const note = profile.note ? ` | note: ${profile.note}` : "";
     const baseUrl = profile.baseURL || DEFAULT_BASE_URL;
-    console.log(`- ${alias}${isDefault} -> ${profile.modelId} @ ${baseUrl}${note}`);
+    console.log(`- ${alias} -> ${profile.modelId} @ ${baseUrl}${note}`);
   }
 }
 
@@ -563,7 +530,6 @@ async function saveWorkspaceEnvFile(runtimeEnv) {
   const content = [
     "# Wing-Models runtime variables for current working directory",
     `${PROFILE_SET_ENV_KEY}=${runtimeEnv.profileSetRaw}`,
-    `${DEFAULT_ALIAS_ENV_KEY}=${runtimeEnv.defaultAlias}`,
     "",
   ].join("\n");
 
@@ -936,26 +902,20 @@ async function loadRuntimeState() {
   const envFileExists = await loadWorkspaceEnvFile();
 
   const envProfileSetRaw = String(process.env[PROFILE_SET_ENV_KEY] || "").trim();
-  const envDefaultAlias = String(process.env[DEFAULT_ALIAS_ENV_KEY] || "").trim();
 
   const profileMap = parseProfileSet(envProfileSetRaw);
 
   if (profileMap.size === 0) {
-    const seeded = await promptProfileSetFromUser();
+    const seededProfileMap = await promptProfileSetFromUser();
     return {
-      profileMap: seeded.profileMap,
-      defaultAlias: seeded.defaultAlias,
+      profileMap: seededProfileMap,
       envFileExists,
       profileSeededInteractively: true,
     };
   }
 
-  const aliases = Array.from(profileMap.keys());
-  const defaultAlias = profileMap.has(envDefaultAlias) ? envDefaultAlias : aliases[0];
-
   return {
     profileMap,
-    defaultAlias,
     envFileExists,
     profileSeededInteractively: false,
   };
@@ -970,42 +930,24 @@ async function main() {
 
   const runtime = await loadRuntimeState();
 
-  // In non-interactive first-time runs, force explicit alias to avoid silently falling back to "default".
-  if (!runtime.envFileExists && !process.stdin.isTTY && !args.alias) {
-    throw new Error(
-      "First-time non-interactive run requires --alias when .3rd.env is missing. Provide an explicit alias (or run interactively to configure profiles)."
-    );
-  }
-
-  if (args.defaultAlias && !runtime.profileMap.has(args.defaultAlias)) {
-    throw new Error(
-      `Unknown --default-alias: ${args.defaultAlias}. Available aliases: ${Array.from(runtime.profileMap.keys()).join(", ")}`
-    );
-  }
-
-  const configuredDefaultAlias = args.defaultAlias || runtime.defaultAlias;
-
   if (args.listAliases) {
-    listAliases(runtime.profileMap, configuredDefaultAlias);
+    listAliases(runtime.profileMap);
     return;
   }
 
-  const selectedAlias = await resolveSelectedAlias(args.alias, configuredDefaultAlias, runtime.profileMap);
+  const selectedAlias = await resolveSelectedAlias(args.alias, runtime.profileMap);
   const selectedProfile = runtime.profileMap.get(selectedAlias.alias);
 
   const shouldSaveEnv =
     args.saveEnv ||
     runtime.profileSeededInteractively ||
-    !process.env[PROFILE_SET_ENV_KEY] ||
-    !process.env[DEFAULT_ALIAS_ENV_KEY];
+    !process.env[PROFILE_SET_ENV_KEY];
 
   process.env[PROFILE_SET_ENV_KEY] = serializeProfileSet(runtime.profileMap);
-  process.env[DEFAULT_ALIAS_ENV_KEY] = configuredDefaultAlias;
 
   if (shouldSaveEnv) {
     await saveWorkspaceEnvFile({
       profileSetRaw: process.env[PROFILE_SET_ENV_KEY],
-      defaultAlias: process.env[DEFAULT_ALIAS_ENV_KEY],
     });
   }
 
