@@ -1,6 +1,6 @@
 # Wing-Models
 
-`wing-models` 在 GitHub Copilot 场景下实现了 OpenClaw Gateway 的部分能力，当前聚焦于 OpenAI 兼容 API 调用链。
+`wing-models` 用于让agent直接调用第三方模型。
 
 核心变化：不再使用单一 `apikey + model`，而是使用凭据条目集合：
 
