@@ -30,7 +30,7 @@ Execution flow:
 - Do not use a single `API_KEY + MODEL_ID` pair.
 - Use required 4-step interactive profile input: `alias -> apikey -> baseurl -> modelid`.
 - For every credential entry (including the first one), collect `alias`, `apikey`, `baseurl`, and `modelid` one-by-one in chat.
-- `baseurl` is optional and defaults to `https://api.openai.com/v1`.
+- `baseurl` is optional and defaults to `https://openrouter.ai/api/v1`.
 - Never auto-fill first-entry `alias`/`modelid` from template defaults.
 - `note` is optional and may be left empty; accept `skip` / `跳过` / `-` as empty note when chat UI cannot send blank messages.
 - At least one profile entry must exist.
@@ -45,7 +45,7 @@ When an agent needs to create `.3rd.env` directly after collecting fields in cha
 
 ```env
 WING_MODELS_DEFAULT_ALIAS=<default-alias-from-chat>
-WING_MODELS_PROFILE_SET=[{"alias":"<alias-from-chat>","apiKey":"<api-key-from-chat>","baseURL":"https://api.openai.com/v1","modelId":"<model-id-from-chat>","note":""}]
+WING_MODELS_PROFILE_SET=[{"alias":"<alias-from-chat>","apiKey":"<api-key-from-chat>","baseURL":"https://openrouter.ai/api/v1","modelId":"<model-id-from-chat>","note":""}]
 OPENCLAW_AGENT_PROFILE=github-copilot
 ```
 
@@ -53,8 +53,8 @@ OPENCLAW_AGENT_PROFILE=github-copilot
 
 This skill works with any OpenAI-compatible API, including:
 
-- OpenAI (default: `https://api.openai.com/v1`)
-- OpenRouter (`https://openrouter.ai/api/v1`)
+- OpenRouter (default: `https://openrouter.ai/api/v1`)
+- OpenAI (`https://api.openai.com/v1`)
 - Azure OpenAI (`https://YOUR_RESOURCE.openai.azure.com/openai/deployments/YOUR_DEPLOYMENT`)
 - Local models (e.g., `http://localhost:11434/v1` for Ollama)
 - Any other OpenAI-compatible endpoint
