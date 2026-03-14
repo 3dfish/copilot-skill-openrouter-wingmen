@@ -20,6 +20,20 @@
 
 ### 安装
 
+#### 通过 npx skills 安装（推荐）
+
+[skills.sh](https://skills.sh/) 是一个开放的 Agent 技能生态系统，让你可以用一条命令安装可复用的 AI 技能。
+
+**前提条件**：确保已安装 Node.js（版本 18+）。
+
+```bash
+npx skills add 3dfish/wing-models
+```
+
+> **说明**：npx 会临时下载并执行 `skills` 包，无需手动安装。
+
+#### 手动安装
+
 ```bash
 npm install --prefix <skill-dir>/scripts
 ```
@@ -136,6 +150,20 @@ A reusable workflow skill for OpenAI-compatible model conversations.
 - **Conversation logs**: Automatically saves dialogue output as Markdown files
 
 ### Installation
+
+#### Install via npx skills (Recommended)
+
+[skills.sh](https://skills.sh/) is an open Agent Skills ecosystem that lets you install reusable AI skills with a single command.
+
+**Prerequisites**: Ensure Node.js (v18+) is installed.
+
+```bash
+npx skills add 3dfish/wing-models
+```
+
+> **Note**: npx will temporarily download and execute the `skills` package, no manual installation needed.
+
+#### Manual Installation
 
 ```bash
 npm install --prefix <skill-dir>/scripts
