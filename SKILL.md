@@ -1,38 +1,19 @@
 ---
 name: wing-models
-description: "Use this skill whenever the user wants to route part of a message to an OpenAI-compatible model while keeping the rest as local agent instructions. Trigger on requests like '和模型聊聊', '帮我问问模型', '代问模型', or when the user writes content wrapped with ==...==alias."
+description: "Use this skill whenever the user wants to route part of a message to an OpenAI-compatible model while keeping the rest as local agent instructions. Trigger on requests like '和模型聊聊', '帮我问问模型', '代问模型'."
 argument-hint: "user message, alias/model profile"
 ---
 
 # Wing-Models
 
-This skill packages a repeatable OpenAI-compatible model conversation workflow with a unified dual-channel syntax.
-
-## Unified Channel Protocol
-
-At any turn, parse user text by the `==...==alias` rule:
-
-- Syntax: `==<content>==<alias>` where `<alias>` specifies which credential profile to use.
-- Content between `==` and `==` is the third-party model segment and must be sent to the configured model.
-- The `<alias>` after the closing `==` specifies the credential profile. If omitted, use `WING_MODELS_DEFAULT_ALIAS`.
-- Content outside `==...==alias` pairs is assistant-local segment and must never be forwarded to the model.
-- If no complete `==...==alias` pair exists, treat the whole message as assistant-local only and do not call the model.
-- If at least one complete pair exists but the merged inside content is empty after trim, do not call the model.
-
-Execution flow:
-
-1. Parse all `==<content>==<alias>` pairs and extract content with alias mappings.
-2. Extract and merge all complete `==...==alias` segments as model prompt body, using the specified alias (or default).
-3. Send only merged inside content to the configured OpenAI-compatible endpoint for the given alias.
-4. Print model reply immediately in chat.
-5. Handle outside content locally as assistant instructions.
+This skill packages a repeatable OpenAI-compatible model conversation workflow.
 
 ## Alias Credential Set (Mandatory)
 
 - Do not use a single `API_KEY + MODEL_ID` pair.
 - Use required 4-step interactive profile input: `alias -> apikey -> baseurl -> modelid`.
 - For every credential entry (including the first one), collect `alias`, `apikey`, `baseurl`, and `modelid` one-by-one in chat.
-- `baseurl` is optional and defaults to `https://openrouter.ai/api/v1`.
+- `baseurl` is mandatory and must be provided explicitly (no default value).
 - Never auto-fill first-entry `alias`/`modelid` from template defaults.
 - `note` is optional and may be left empty; accept `skip` / `跳过` / `-` as empty note when chat UI cannot send blank messages.
 - At least one profile entry must exist.
@@ -55,7 +36,7 @@ OPENCLAW_AGENT_PROFILE=github-copilot
 
 This skill works with any OpenAI-compatible API, including:
 
-- OpenRouter (default: `https://openrouter.ai/api/v1`)
+- OpenRouter (`https://openrouter.ai/api/v1`)
 - OpenAI (`https://api.openai.com/v1`)
 - Azure OpenAI (`https://YOUR_RESOURCE.openai.azure.com/openai/deployments/YOUR_DEPLOYMENT`)
 - Local models (e.g., `http://localhost:11434/v1` for Ollama)
@@ -189,7 +170,6 @@ node <skill-dir>/scripts/wing_models.mjs \
 ## Completion Checks
 
 - **Runtime readiness verified**: Node.js and npm are available, dependencies are installed.
-- `==...==alias` channel parsing is applied correctly.
 - Alias selected correctly (arg or default).
 - Model reply printed immediately.
 - No API key exposed in logs.

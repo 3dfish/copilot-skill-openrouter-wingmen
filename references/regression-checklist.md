@@ -4,10 +4,8 @@ Use this checklist after changing relay behavior, command parsing, output render
 
 ## Core Flow
 
-- [ ] Unified parsing is based on `==...==` across all turns.
 - [ ] Alias resolution remains explicit alias first, then default alias.
 - [ ] Model response prints immediately after each call.
-- [ ] Assistant-local text is handled without being forwarded.
 
 ## Alias Credential Set
 
@@ -19,14 +17,6 @@ Use this checklist after changing relay behavior, command parsing, output render
 - [ ] `--list-aliases` prints aliases, bound model ids, and baseURLs.
 - [ ] `--alias` selects correct profile for request.
 - [ ] Missing `--alias` falls back to default alias (with interactive default option in TTY).
-
-## Delimiter Behavior (`==...==`)
-
-- [ ] No complete pair: no model call; full message remains assistant-local.
-- [ ] Single pair: only inside text is sent to model.
-- [ ] Mixed text (`outside ==inside== outside`): inside sent, outside kept local.
-- [ ] Multiple pairs: all inside texts are merged in encounter order and sent in one call.
-- [ ] Unmatched delimiter is treated as plain assistant-local text.
 
 ## Output Timing
 

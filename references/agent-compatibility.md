@@ -7,8 +7,8 @@ Interaction policy:
 - All agents use the same chat/text input flow.
 - Do not rely on card-style or popup-specific UI.
 - Agent profiles are kept for runtime identification and diagnostics.
-- All agents must follow the same `==...==` dual-channel parsing contract defined in `references/protocol.md`.
-- Credential onboarding must also be consistent across agents: collect `alias`, `apikey`, `baseURL`, and `modelid` in chat one-by-one, including the first profile entry.
+- All agents must follow the same credential onboarding contract.
+- Credential onboarding must be consistent across agents: collect `alias`, `apikey`, `baseURL`, and `modelid` in chat one-by-one, including the first profile entry.
 
 ## Supported Profiles
 

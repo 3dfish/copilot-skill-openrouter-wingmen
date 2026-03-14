@@ -27,13 +27,6 @@
 - CLI: 通过命令行脚本调用
 - VS Code Chat: 通过技能工作流交互
 
-## 双通道消息规则
-
-- 在任意时刻，用户消息中 `==...==` 内的内容会被视为第三方模型输入。
-- `==...==` 外侧内容只给当前 agent，本地处理，不会转发到模型。
-- 没有完整 `==...==` 成对标记时，不调用模型。
-- 多个 `==...==` 片段会按出现顺序合并后一次发送给模型。
-
 ## 仓库结构
 
 ```text
@@ -43,7 +36,6 @@
 |-- README.md
 |-- references/
 |   |-- agent-compatibility.md
-|   |-- protocol.md
 |   `-- regression-checklist.md
 `-- scripts/
     |-- agent-profiles.json
@@ -217,7 +209,6 @@ OPENCLAW_AGENT_PROFILE=github-copilot
 
 - 技能定义：`SKILL.md`
 - Agent 兼容：`references/agent-compatibility.md`
-- 双通道协议：`references/protocol.md`
 - 回归清单：`references/regression-checklist.md`
 
 ## 许可证
