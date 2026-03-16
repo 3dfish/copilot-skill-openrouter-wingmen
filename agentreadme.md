@@ -1,1 +1,1 @@
-在外部建立1个项目文件夹wing-models-mcp，将这个skill的scripts中的功能全部封装为一个mcp server（这个mcp server按需启动，要有个健壮的启动指令保证运行时就绪），包括skill.md中管理凭据的技能也做一个对应的mcp工具。另起一个文件夹wing-models-mcp-skill，重写一个skill指导agent使用这个mcp server的工具。这个mcp+skill项目要求能兼容市面上的主流agent(claude code,openclaw,codex,github copilot,opencode等等)
+在外部建立1个项目文件夹wing-models-mcp，将这个skill的scripts中的功能全部封装为一个mcp server（这个mcp server按需启动，要有个健壮的启动指令保证运行时就绪），包括skill.md中管理凭据的技能也做一个对应的mcp工具。写一个帮助文件，用于指导agent写出如何调用mcp工具的skill。
